@@ -7,6 +7,9 @@ use Carp;
 use Dancer2::Plugin;
 use Class::Load qw(try_load_class);
 
+use HTTP::Headers::ActionPack::Authorization;
+use HTTP::Headers::ActionPack::WWWAuthenticate;
+
 our $VERSION = '0.001';
 
 my $settings;
