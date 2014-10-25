@@ -1,5 +1,5 @@
-Dancer2::Plugin::HTTP::Auth
-===========================
+Dancer2::Plugin::HTTP::Auth::Extensible
+=======================================
 
 A Plugin for doing simple Authentication for REST applications with Dancer2
 
@@ -7,7 +7,7 @@ Synopsis
 ========
 
     use Dancer2;
-    use Dancer2::Plugin::HTTP::Auth;
+    use Dancer2::Plugin::HTTP::Auth::Extensible;
     
     get '/users' => require_authentication => sub { ... };
     
@@ -67,7 +67,7 @@ Configuration
 this is how the `confg.yml` should look like:
 
     plugins:
-        HTTP::Authorize:
+        HTTP::Auth::Extensible:
             realms:
                 example:
                     authenticate: Digest
