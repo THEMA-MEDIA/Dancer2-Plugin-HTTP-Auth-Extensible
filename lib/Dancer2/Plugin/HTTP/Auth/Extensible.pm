@@ -1,4 +1,4 @@
-package Dancer2::Plugin::Auth::Extensible;
+package Dancer2::Plugin::HTTP::Auth::Extensible;
 
 use warnings;
 use strict;
@@ -7,7 +7,7 @@ use Carp;
 use Dancer2::Plugin;
 use Class::Load qw(try_load_class);
 
-our $VERSION = '0.301';
+our $VERSION = '0.001';
 
 my $settings;
 
@@ -29,7 +29,7 @@ my $load_settings = sub {
 
 =head1 NAME
 
-Dancer2::Plugin::Auth::Extensible - extensible authentication framework for Dancer2 apps
+Dancer2::Plugin::HTTP::Auth::Extensible - extensible authentication framework for Dancer2 apps
 
 =head1 DESCRIPTION
 
@@ -50,7 +50,7 @@ have no excuse for storing plain-text passwords).
 Configure the plugin to use the authentication provider class you wish to use:
 
   plugins:
-        Auth::Extensible:
+        HTTP::Auth::Extensible:
             realms:
                 users:
                     provider: Example
@@ -58,7 +58,7 @@ Configure the plugin to use the authentication provider class you wish to use:
 
 The configuration you provide will depend on the authentication provider module
 in use.  For a simple example, see
-L<Dancer2::Plugin::Auth::Extensible::Provider::Config>.
+L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Config>.
 
 Define that a user must be logged in and have the proper permissions to 
 access a route:
@@ -81,28 +81,28 @@ to authenticate a user against the chosen source of authentication.
 
 For an example of how simple provider classes are, so you can build your own if
 required or just try out this authentication framework plugin easily, 
-see L<Dancer2::Plugin::Auth::Extensible::Provider::Example>.
+see L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Example>.
 
 This framework supplies the following providers out-of-the-box:
 
 =over 4
 
-=item L<Dancer2::Plugin::Auth::Extensible::Provider::Unix>
+=item L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Unix>
 
 Authenticates users using system accounts on Linux/Unix type boxes
 
-=item L<Dancer2::Plugin::Auth::Extensible::Provider::Database>
+=item L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Database>
 
 Authenticates users stored in a database table
 
-=item L<Dancer2::Plugin::Auth::Extensible::Provider::Config>
+=item L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Config>
 
 Authenticates users stored in the app's config
 
 =back
 
 Need to write your own?  Just subclass
-L<Dancer2::Plugin::Auth::Extensible::Provider::Base> and implement the required
+L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Base> and implement the required
 methods, and you're good to go!
 
 =head1 CONTROLLING ACCESS TO ROUTES
@@ -161,7 +161,7 @@ C<permission_denied_page_handler> with the name of a subroutine to be called to
 handle the route. Note that it must be a fully qualified sub. E.g.
 
     plugins:
-      Auth::Extensible:
+      HTTP::Auth::Extensible:
         login_page_handler: 'My::App:login_page_handler'
         permission_denied_page_handler: 'My::App:permission_denied_page_handler'
 
@@ -488,9 +488,8 @@ register authenticate_user => \&authenticate_user;
 
 In your application's configuation file:
 
-    session: simple
     plugins:
-        Auth::Extensible:
+        HTTP::Auth::Extensible:
             # Set to 1 if you want to disable the use of roles (0 is default)
             disable_roles: 0
             # After /login: If no return_url is given: land here ('/' is default)
@@ -536,10 +535,10 @@ sub auth_provider {
         or die "Invalid realm $realm";
     my $provider_class = $realm_settings->{provider}
         or die "No provider configured - consult documentation for "
-            . __PACKAGE__;
+            . "Dancer2::Plugin::Auth::Extensible";
 
     if ($provider_class !~ /::/) {
-        $provider_class = __PACKAGE__ . "::Provider::$provider_class";
+        $provider_class = "Dancer2::Plugin::Auth::Extensible" . "::Provider::$provider_class";
     }
     my ($ok, $error) = try_load_class($provider_class);
 
@@ -731,6 +730,10 @@ sub _smart_match {
 
 =head1 AUTHOR
 
+Theo van Hoesel, C<< <Th.J.v.Hoesel at THEMA-MEDIA dot nl> >>
+
+HTTP Autneticate implementation based on:
+
 David Precious, C<< <davidp at preshweb.co.uk> >>
 
 Dancer2 port of Dancer::Plugin::Auth::Extensible by:
@@ -743,7 +746,7 @@ This is an early version; there may still be bugs present or features missing.
 
 This is developed on GitHub - please feel free to raise issues or pull requests
 against the repo at:
-L<https://github.com/racke/Dancer2-Plugin-Auth-Extensible>
+L<https://github.com/THEMA-MEDIA/Dancer2-Plugin-HTTP-Auth-Extensible>
 
 
 
@@ -766,7 +769,7 @@ Config options for default login/logout handlers by Henk van Oers (hvoers)
 =head1 LICENSE AND COPYRIGHT
 
 
-Copyright 2012-13 David Precious.
+Copyright 2014 THEMA-MEDIA, Th.J. van Hoesel
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
@@ -777,4 +780,4 @@ See http://dev.perl.org/licenses/ for more information.
 
 =cut
 
-1; # End of Dancer2::Plugin::Auth::Extensible
+1; # End of Dancer2::Plugin::HTTP::Auth::Extensible

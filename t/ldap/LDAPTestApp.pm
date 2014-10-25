@@ -6,7 +6,7 @@ use Dancer2;
 set session => 'simple';
 set plugins => { 'Auth::Extensible' => { provider => 'LDAP' } };
 
-use Dancer2::Plugin::Auth::Extensible;
+use Dancer2::Plugin::HTTP::Auth::Extensible;
 no warnings 'uninitialized';
 
 

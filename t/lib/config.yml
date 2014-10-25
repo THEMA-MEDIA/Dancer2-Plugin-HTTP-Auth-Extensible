@@ -1,6 +1,6 @@
 session: simple
 plugins:
-    Auth::Extensible:
+    HTTP::Auth::Extensible:
         realms:
             config1:
                 provider: Config
