@@ -1,7 +1,6 @@
 package t::lib::TestSub;
 
 use Test::More;
-use HTTP::Request::Common qw(GET HEAD PUT POST DELETE);
 
 sub test_the_app_sub {
     my $sub = sub {
@@ -11,14 +10,16 @@ sub test_the_app_sub {
         # First, without being logged in, check we can access the index page, but not
         # stuff we need to be logged in for:
 
+        my $req = HTTP::Request->new( GET => '/');
         is (
-            $cb->( GET '/' )->content,
+            $cb->($req)->content,
             'Index always accessible',
             'Index accessible while not logged in'
         );
 
         {
-            my $res = $cb->( GET '/loggedin' );
+            my $req = HTTP::Request->new( GET => '/loggedin');
+            my $res = $cb->( $req );
 
             is( $res->code, 302, '[GET /loggedin] Correct code' );
 
@@ -30,7 +31,8 @@ sub test_the_app_sub {
         }
 
         {
-            my $res = $cb->( GET '/beer' );
+            my $req = HTTP::Request->new( GET => '/beer');
+            my $res = $cb->( $req );
 
             is( $res->code, 302, '[GET /beer] Correct code' );
 
@@ -42,7 +44,8 @@ sub test_the_app_sub {
         }
 
         {
-            my $res = $cb->( GET '/regex/a' );
+            my $req = HTTP::Request->new( GET => '/regex/a');
+            my $res = $cb->( $req );
 
             is( $res->code, 302, '[GET /regex/a] Correct code' );
 
@@ -56,17 +59,21 @@ sub test_the_app_sub {
         # OK, now check we can't log in with fake details
 
         {
-            my $res = $cb->( POST '/login', [ username => 'foo', password => 'bar' ] );
+            my $req = HTTP::Request->new( POST => '/login');
+            $req->uri->query_form( username => 'foo', password => 'bar' );
+            my $res = $cb->( $req );
 
             is( $res->code, 401, 'Login with fake details fails');
         }
 
-        my @headers;
+        my $cookie_jar;
 
         # ... and that we can log in with real details
 
         {
-            my $res = $cb->( POST '/login', [ username => 'dave', password => 'beer' ] );
+            my $req = HTTP::Request->new( POST => '/login');
+            $req->uri->query_form( username => 'dave', password => 'beer' );
+            my $res = $cb->( $req );
 
             is( $res->code, 302, 'Login with real details succeeds');
 
@@ -74,13 +81,15 @@ sub test_the_app_sub {
             my $cookie = $res->header('Set-Cookie');
             $cookie =~ s/^(.*?);.*$/$1/s;
             ok ($cookie, "Got the cookie: $cookie");
-            @headers = (Cookie => $cookie);
+            $cookie_jar = $cookie;
         }
 
         # Now we're logged in, check we can access stuff we should...
 
         {
-            my $res = $cb->( GET '/loggedin' , @headers);
+            my $req = HTTP::Request->new( GET => '/loggedin');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 200, 'Can access /loggedin now we are logged in');
 
@@ -89,7 +98,9 @@ sub test_the_app_sub {
         }
 
         {
-            my $res = $cb->( GET '/name', @headers);
+            my $req = HTTP::Request->new( GET => '/name');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->content, 'Hello, David Precious',
                 'Logged in user details via logged_in_user work');
@@ -97,20 +108,26 @@ sub test_the_app_sub {
         }
 
         {
-            my $res = $cb->( GET '/roles', @headers );
+            my $req = HTTP::Request->new( GET => '/roles');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->content, 'BeerDrinker,Motorcyclist', 'Correct roles for logged in user');
         }
 
         {
-            my $res = $cb->( GET '/roles/bob', @headers );
+            my $req = HTTP::Request->new( GET => '/roles/bob');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->content, 'CiderDrinker', 'Correct roles for other user in current realm');
         }
 
         # Check we can request something which requires a role we have....
         {
-            my $res = $cb->( GET '/beer', @headers );
+            my $req = HTTP::Request->new( GET => '/beer');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 200, 'We can request a route (/beer) requiring a role we have...');
         }
@@ -118,14 +135,18 @@ sub test_the_app_sub {
         # Check we can request a route that requires any of a list of roles, one of
         # which we have:
         {
-            my $res = $cb->( GET '/anyrole', @headers );
+            my $req = HTTP::Request->new( GET => '/anyrole');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 200,
                 "We can request a multi-role route requiring with any one role");
         }
 
         {
-            my $res = $cb->( GET '/allroles', @headers );
+            my $req = HTTP::Request->new( GET => '/allroles');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 200,
                 "We can request a multi-role route with all roles required");
@@ -135,13 +156,17 @@ sub test_the_app_sub {
         # melmothX was seeing issues with routes not requiring login when they should...
 
         {
-            my $res = $cb->( GET '/regex/a', @headers );
+            my $req = HTTP::Request->new( GET => '/regex/a');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 200, "We can request a regex route when logged in");
         }
 
         {
-            my $res = $cb->( GET '/piss/regex', @headers );
+            my $req = HTTP::Request->new( GET => '/piss/regex');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 200, "We can request a route requiring a regex role we have");
         }
@@ -149,7 +174,9 @@ sub test_the_app_sub {
         # ... but can't request something requiring a role we don't have
 
         {
-            my $res = $cb->( GET '/piss', @headers );
+            my $req = HTTP::Request->new( GET => '/piss');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is ($res->code, 302,
                 "Redirect on a route requiring a role we don't have");
@@ -162,7 +189,9 @@ sub test_the_app_sub {
         # Check the realm we authenticated against is what we expect
 
         {
-            my $res = $cb->( GET '/realm', @headers );
+            my $req = HTTP::Request->new( GET => '/realm');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Status code on /realm route.');
             is($res->content, 'config1', 'Authenticated against expected realm');
@@ -171,7 +200,9 @@ sub test_the_app_sub {
         # Now, log out
 
         {
-            my $res = $cb->(POST '/logout', @headers );
+            my $req = HTTP::Request->new( POST => '/logout');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Logging out returns 200');
         }
@@ -179,7 +210,9 @@ sub test_the_app_sub {
         # Check we can't access protected pages now we logged out:
 
         {
-            my $res = $cb->(GET '/loggedin', @headers);
+            my $req = HTTP::Request->new( GET => '/loggedin');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 302, 'Status code on accessing /loggedin after logout');
 
@@ -189,7 +222,9 @@ sub test_the_app_sub {
         }
 
         {
-            my $res = $cb->(GET '/beer', @headers);
+            my $req = HTTP::Request->new( GET => '/beer');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 302, 'Status code on accessing /beer after logout');
 
@@ -201,7 +236,9 @@ sub test_the_app_sub {
         # OK, log back in, this time as a user from the second realm
 
         {
-            my $res = $cb->(POST '/login', { username => 'burt', password => 'bacharach' });
+            my $req = HTTP::Request->new( POST => '/login');
+            $req->uri->query_form( username => 'burt', password => 'bacharach' );
+            my $res = $cb->( $req );
 
             is($res->code, 302, 'Login as user from second realm succeeds');
 
@@ -209,28 +246,34 @@ sub test_the_app_sub {
             my $cookie = $res->header('Set-Cookie');
             $cookie =~ s/^(.*?);.*$/$1/s;
             ok ($cookie, "Got the cookie: $cookie");
-            @headers = (Cookie => $cookie);
+            $cookie_jar = $cookie;
         }
 
 
         # And that now we're logged in again, we can access protected pages
 
         {
-            my $res = $cb->(GET '/loggedin', @headers);
+            my $req = HTTP::Request->new( GET => '/loggedin');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Can access /loggedin now we are logged in again');
         }
 
         # And that the realm we authenticated against is what we expect
         {
-            my $res = $cb->( GET '/realm', @headers );
+            my $req = HTTP::Request->new( GET => '/realm');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Status code on /realm route.');
             is($res->content, 'config2', 'Authenticated against expected realm');
         }
 
         {
-            my $res = $cb->( GET '/roles/bob/config1', @headers );
+            my $req = HTTP::Request->new( GET => '/roles/bob/config1');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Status code on /roles/bob/config1 route.');
             is($res->content, 'CiderDrinker', 'Correct roles for other user in current realm');
@@ -238,16 +281,18 @@ sub test_the_app_sub {
 
         # Now, log out again
         {
-            my $res = $cb->(POST '/logout', @headers );
+            my $req = HTTP::Request->new( POST => '/logout');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Logged out again');
         }
 
         # Now check we can log in as a user whose password is stored hashed:
         {
-            my $res = $cb->(POST '/login',
-                            {
-                                username => 'hashedpassword', password => 'password' });
+            my $req = HTTP::Request->new( POST => '/login');
+            $req->uri->query_form( username => 'hashedpassword', password => 'password' );
+            my $res = $cb->( $req );
 
             is($res->code, 302, 'Login as user with hashed password succeeds');
 
@@ -255,23 +300,27 @@ sub test_the_app_sub {
             my $cookie = $res->header('Set-Cookie');
             $cookie =~ s/^(.*?);.*$/$1/s;
             ok ($cookie, "Got the cookie: $cookie");
-            @headers = (Cookie => $cookie);
+            $cookie_jar = $cookie;
         }
 
         # And that now we're logged in again, we can access protected pages
         {
-            my $res = $cb->(GET '/loggedin', @headers);
+            my $req = HTTP::Request->new( GET => '/loggedin');
+            $req->header('Cookie' => $cookie_jar);
+            my $res = $cb->( $req );
 
             is($res->code, 200, 'Can access /loggedin now we are logged in again');
         }
 
         # Check that the redirect URL can be set when logging in
         {
-            my $res = $cb->(POST '/login', {
+            my $req = HTTP::Request->new( POST => '/login');
+            $req->uri->query_form(
                 username => 'dave',
                 password => 'beer',
                 return_url => '/foobar',
-            });
+            );
+            my $res = $cb->( $req );
 
             is($res->code, 302, 'Status code for login with return_url');
 
