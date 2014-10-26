@@ -78,7 +78,7 @@ test_psgi $app, sub {
 test_psgi $app, sub {
     my $cb = shift;
     my $req = HTTP::Request->new( GET => '/auth');
-    $req->header('Authorise') => authorization_basic ( 'foo', 'bar');
+    $req->authorization_basic ( 'foo', 'bar');
     my $res = $cb->( $req );
     is (
         $res->code,
@@ -90,7 +90,7 @@ test_psgi $app, sub {
 test_psgi $app, sub {
     my $cb = shift;
     my $req = HTTP::Request->new( GET => '/auth');
-    $req->header('Authorise') => authorization_basic ( 'dave', 'beer');
+    $req->authorization_basic ( 'dave', 'beer');
     my $res = $cb->( $req );
     is (
         $res->code,
@@ -102,5 +102,6 @@ test_psgi $app, sub {
         'Welcome to the default realm',
         'Shows message for authenticated resource'
     );
-
 };
+
+done_testing();

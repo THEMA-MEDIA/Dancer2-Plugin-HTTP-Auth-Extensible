@@ -224,19 +224,21 @@ it.
 
 sub http_require_authentication {
     my $dsl = shift;
+    my $realm = (@_ == 2) ? shift : '';
     my $coderef = shift;
 
     return sub {
         if (!$coderef || ref $coderef ne 'CODE') {
-            warn "Invalid httP_require_authentication usage, please see docs";
+            warn "Invalid http_require_authentication usage, please see docs";
         }
 
         my $user = http_authenticated_user($dsl);
         if (!$user) {
             $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
-            return $dsl->redirect
-                ($dsl->uri_for($loginpage, { return_url => $dsl->request->request_uri }));
+            $dsl->header('WWW-Authenticate' => "Blah Blah");
+            $dsl->status(401); # Unauthorized
+            return "Unauthorized to access realm: '$realm'";
         }
         return $coderef->($dsl);
     };

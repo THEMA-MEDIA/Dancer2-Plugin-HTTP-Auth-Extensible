@@ -15,30 +15,30 @@ BEGIN {
                 realm_one => {
                     scheme => "Basic",
                     provider => "Config",
-                    users => (
+                    users => [
                       { user => "dave",
                         pass => "beer",
                         name => "David Precious",
-                        roles => ( 'BeerDrinker', 'Motorcyclist' ),
+                        roles => [ 'BeerDrinker', 'Motorcyclist' ],
                       },
                       { user => "bob",
                         pass => "cider",
                         name => "Bob Smith",
-                        roles => ( 'Ciderdrinker' ),
+                        roles => [ 'Ciderdrinker' ],
                       },
-                    )
+                    ]
                 },
                 realm_two => {
                     scheme => "Basic",
                     provider => "Config",
-                    users => (
+                    users => [
                      { user => "burt",
                        pass => "bacharach",
                      },
                      { user => "hashedpassword",
                        pass => "{SSHA}+2u1HpOU7ak6iBR6JlpICpAUvSpA/zBM",
                      },
-                   )
+                   ]
                 }
             }
         }
@@ -96,6 +96,11 @@ test_psgi $app, sub {
     my $req = HTTP::Request->new( GET => '/realm_one');
     my $res = $cb->( $req );
     is (
+        $res->code,
+        401,
+        '401: "Unauthorized" is the correct status code'
+    );
+    is (
         $res->headers->header('WWW-Authenticate'),
         'Basic realm="realm_one"',
         'Returns the right "WWW-Authentication" response header for realm ONE'
@@ -106,6 +111,11 @@ test_psgi $app, sub {
     my $cb = shift;
     my $req = HTTP::Request->new( GET => '/realm_two');
     my $res = $cb->( $req );
+    is (
+        $res->code,
+        401,
+        '401: "Unauthorized" is the correct status code'
+    );
     is (
         $res->headers->header('WWW-Authenticate'),
         'Basic realm="realm_two"',
@@ -129,3 +139,4 @@ test_psgi $app, sub {
     );
 };
 
+done_testing();
