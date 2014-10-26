@@ -222,18 +222,18 @@ it.
 
 =cut
 
-sub require_login {
+sub http_require_authentication {
     my $dsl = shift;
     my $coderef = shift;
 
     return sub {
         if (!$coderef || ref $coderef ne 'CODE') {
-            warn "Invalid require_login usage, please see docs";
+            warn "Invalid httP_require_authentication usage, please see docs";
         }
 
-        my $user = logged_in_user($dsl);
+        my $user = http_authenticated_user($dsl);
         if (!$user) {
-            $dsl->execute_hook('login_required', $coderef);
+            $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
             return $dsl->redirect
                 ($dsl->uri_for($loginpage, { return_url => $dsl->request->request_uri }));
@@ -242,8 +242,8 @@ sub require_login {
     };
 }
 
-register require_login  => \&require_login;
-register requires_login => \&require_login;
+register http_require_authentication  => \&http_require_authentication;
+register http_requires_authentication  => \&http_require_authentication;
 
 =item require_role
 
@@ -258,12 +258,12 @@ regex - for example:
     get '/beer' => require_role qr/Drinker$/ => sub { ... };
 
 =cut
-sub require_role {
+sub http_require_role {
     return _build_wrapper(@_, 'single');
 }
 
-register require_role  => \&require_role;
-register requires_role => \&require_role;
+register http_require_role  => \&http_require_role;
+register http_requires_role => \&http_require_role;
 
 =item require_any_role
 
@@ -274,12 +274,12 @@ one (or more) of the specified roles in order to access it.
 
 =cut
 
-sub require_any_role {
+sub http_require_any_role {
     return _build_wrapper(@_, 'any');
 }
 
-register require_any_role  => \&require_any_role;
-register requires_any_role => \&require_any_role;
+register http_require_any_role  => \&http_require_any_role;
+register http_requires_any_role => \&http_require_any_role;
 
 =item require_all_roles
 
@@ -290,12 +290,12 @@ of the roles listed in order to access it.
 
 =cut
 
-sub require_all_roles {
+sub http_require_all_roles {
     return _build_wrapper(@_, 'all');
 }
 
-register require_all_roles  => \&require_all_roles;
-register requires_all_roles => \&require_all_roles;
+register http_require_all_roles  => \&http_require_all_roles;
+register http_requires_all_roles => \&http_require_all_roles;
 
 
 sub _build_wrapper {
@@ -308,9 +308,9 @@ sub _build_wrapper {
         ? @$require_role
         : $require_role;
     return sub {
-        my $user = logged_in_user($dsl);
+        my $user = http_authenticated_user($dsl);
         if (!$user) {
-            $dsl->execute_hook('login_required', $coderef);
+            $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
             return $dsl->redirect($dsl->uri_for(
                 $loginpage,
@@ -343,7 +343,7 @@ sub _build_wrapper {
             return $coderef->($dsl);
         }
 
-        $dsl->execute_hook('permission_denied', $coderef);
+        $dsl->execute_hook('http_permission_denied', $coderef);
         # TODO: see if any code executed by that hook set up a response
         return $dsl->redirect(
             $dsl->uri_for($deniedpage, { return_url => $dsl->request->request_uri }));
@@ -359,7 +359,7 @@ The details you get back will depend upon the authentication provider in use.
 
 =cut
 
-sub logged_in_user {
+sub http_authenticated_user {
     my $dsl = shift;
     my $session = $dsl->app->session;
 
@@ -371,7 +371,7 @@ sub logged_in_user {
         return;
     }
 }
-register logged_in_user => \&logged_in_user;
+register http_authenticated_user => \&http_authenticated_user;
 
 =item user_has_role
 
@@ -461,7 +461,7 @@ C<($success, $realm)>.
 
 =cut
 
-sub authenticate_user {
+sub http_authenticate_user {
     my ($dsl, $username, $password, $realm) = @_;
     my @realms_to_check = $realm? ($realm) : (keys %{ $settings->{realms} });
 
@@ -482,7 +482,7 @@ sub authenticate_user {
     return wantarray ? (0, undef) : 0;
 }
 
-register authenticate_user => \&authenticate_user;
+register http_authenticate_user => \&http_authenticate_user;
 
 
 =back
@@ -553,7 +553,7 @@ sub auth_provider {
 }
 }
 
-register_hook qw(login_required permission_denied);
+register_hook qw(http_authentication_required http_permission_denied);
 register_plugin for_versions => [qw(1 2)];
 
 
@@ -591,7 +591,7 @@ on_plugin_import {
             code => sub {
                 my $dsl = shift;
 
-                if(logged_in_user($dsl)) {
+                if(http_authenticated_user($dsl)) {
                     $dsl->redirect($dsl->params->{return_url} || $userhomepage);
                 }
 
@@ -640,11 +640,11 @@ sub _post_login_route {
         }
     }
 
-    if(logged_in_user($app)) {
+    if(http_authenticated_user($app)) {
         $app->redirect($app->params->{return_url} || $userhomepage);
     }
 
-    my ($success, $realm) = authenticate_user(
+    my ($success, $realm) = http_authenticate_user(
         $app, $username, $password
     );
     if ($success) {

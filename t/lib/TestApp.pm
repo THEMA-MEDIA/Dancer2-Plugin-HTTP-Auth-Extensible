@@ -5,7 +5,7 @@ use Dancer2;
 
 
 set session => 'simple';
-set plugins => { 'Auth::Extensible' => { provider => 'Example' } };
+set plugins => { 'HTTP::Auth::Extensible' => { provider => 'Example' } };
 
 use Dancer2::Plugin::HTTP::Auth::Extensible;
 no warnings 'uninitialized';
@@ -15,54 +15,54 @@ get '/' => sub {
     "Index always accessible";
 };
 
-get '/loggedin' => require_login sub  {
+get '/loggedin' => http_require_authentication sub  {
     "You are logged in";
 };
 
-get '/name' => require_login sub {
-    return "Hello, " . logged_in_user->{name};
+get '/name' => http_require_authentication sub {
+    return "Hello, " . http_authenticated_user->{name};
 };
 
-get '/roles' => require_login sub {
+get '/roles' => http_require_authentication sub {
     return join ',', sort @{ user_roles() };
 };
 
-get '/roles/:user' => require_login sub {
+get '/roles/:user' => http_require_authentication sub {
     my $user = param 'user';
     return join ',', sort @{ user_roles($user) };
 };
 
-get '/roles/:user/:realm' => require_login sub {
+get '/roles/:user/:realm' => http_require_authentication sub {
     my $user = param 'user';
     my $realm = param 'realm';
     return join ',', sort @{ user_roles($user, $realm) };
 };
 
-get '/realm' => require_login sub {
+get '/realm' => http_require_authentication sub {
     return session->read('logged_in_user_realm');
 };
 
-get '/beer' => require_role BeerDrinker => sub {
+get '/beer' => http_require_role BeerDrinker => sub {
     "You can have a beer";
 };
 
-get '/piss' => require_role BearGrylls => sub {
+get '/piss' => http_require_role BearGrylls => sub {
     "You can drink piss";
 };
 
-get '/piss/regex' => require_role qr/beer/i => sub {
+get '/piss/regex' => http_require_role qr/beer/i => sub {
     "You can drink piss now";
 };
 
-get '/anyrole' => require_any_role ['Foo','BeerDrinker'] => sub {
+get '/anyrole' => http_require_any_role ['Foo','BeerDrinker'] => sub {
     "Matching one of multiple roles works";
 };
 
-get '/allroles' => require_all_roles ['BeerDrinker', 'Motorcyclist'] => sub {
+get '/allroles' => http_require_all_roles ['BeerDrinker', 'Motorcyclist'] => sub {
     "Matching multiple required roles works";
 };
 
-get qr{/regex/(.+)} => require_login sub {
+get qr{/regex/(.+)} => http_require_authentication sub {
     return "Matched";
 };
 
