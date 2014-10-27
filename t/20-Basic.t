@@ -12,7 +12,7 @@ BEGIN {
     set plugins => {
         'HTTP::Auth::Extensible' => {
             realms => {
-                realm_one => {
+                some_realm => {
                     scheme => "Basic",
                     provider => "Config",
                     users => (
@@ -29,13 +29,13 @@ BEGIN {
     use Dancer2::Plugin::HTTP::Auth::Extensible;
     no warnings 'uninitialized';
 
-    get '/' => sub { "Index always accessible" };
+    get '/' => sub { "Access does not need any authorization" };
     
     get '/auth' => http_requires_authentication sub {
-        "Welcome to the default realm"
+        "Access granted for default realm"
     };
 
-}
+} # BEGIN
 
 my $app = Dancer2->runner->psgi_app;
 
@@ -52,9 +52,14 @@ test_psgi $app, sub {
     my $req = HTTP::Request->new( GET => '/');
     my $res = $cb->( $req );
     is (
+        $res->code,
+        200,
+        'Status 200: root resource accessible without login'
+    );
+    is (
         $res->content,
-        'Index always accessible',
-        'Index accessible while not logged in'
+        'Access does not need any authorization',
+        'Delivering: root resource accessible without login'
     );
 };
 
@@ -65,12 +70,17 @@ test_psgi $app, sub {
     is (
         $res->code,
         401,
-        '401: "Unauthorized" without HTTP Autorization header'
+        'Status 401: without HTTP-field Autorization'
     );
     is (
         $res->headers->header('WWW-Authenticate'),
-        'Basic realm="realm_one"',
-        'Returns the right "WWW-Authentication" response header'
+        'Basic realm="some_realm"',
+        'HTTP-field: WWW-Authentication without HTTP-field Autorization'
+    );
+    isnt ( # negative testing, we should not get this content
+        $res->content,
+        'Access granted for default realm',
+        'Delivering: without HTTP-field Autorization'
     );
 };
 
@@ -83,7 +93,17 @@ test_psgi $app, sub {
     is (
         $res->code,
         401,
-        '401: "Unauthorized" without proper credentials'
+        'Status 401: without proper credentials'
+    );
+    is (
+        $res->headers->header('WWW-Authenticate'),
+        'Basic realm="some_realm"',
+        'HTTP-field: WWW-Authentication without proper credentials'
+    );
+    isnt ( # negative testing, we should not get this content
+        $res->content,
+        'Access granted for default realm',
+        'Delivering: without proper credentials'
     );
 };
 
@@ -95,12 +115,17 @@ test_psgi $app, sub {
     is (
         $res->code,
         200,
-        '200: "OK" using proper credentials'
+        'Status 200: with the right credentials'
+    );
+    isnt ( # negative testing, we should not be required to authenticate
+        $res->headers->header('WWW-Authenticate'),
+        'Basic realm="some_realm"',
+        'HTTP-field: WWW-Authentication with the right credentials'
     );
     is (
         $res->content,
-        'Welcome to the default realm',
-        'Shows message for authenticated resource'
+        'Access granted for default realm',
+        'Delivering: with the right credentials'
     );
 };
 

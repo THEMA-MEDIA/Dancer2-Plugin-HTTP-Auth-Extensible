@@ -224,19 +224,39 @@ it.
 
 sub http_require_authentication {
     my $dsl = shift;
-    my $realm = (@_ == 2) ? shift : '';
+    my $realm = (@_ == 2) ? shift : undef;
     my $coderef = shift;
 
     return sub {
         if (!$coderef || ref $coderef ne 'CODE') {
             warn "Invalid http_require_authentication usage, please see docs";
         }
-
+        
+        if (!$realm) {
+            if (exists plugin_setting->{default_realm} ) {
+              $realm = plugin_setting->{default_realm};
+            }
+            elsif (1 == keys %{ plugin_setting->{realms} }) {
+                ($realm) = keys %{ plugin_setting->{realms} };
+            }
+            else {
+                $dsl->status(500);
+                return qq{Internal Server Error: "multiple realms without default"};
+            }
+        } # if (!$realm)
+        
+        unless (grep {$realm eq $_} keys %{ plugin_setting->{realms} }) {
+            $dsl->status(500);
+            return qq{Internal Server Error: "required realm does not exist: '$realm'"};
+        }
+        
+        my $scheme = "Basic"; # TODO get this from the realm
+        
         my $user = http_authenticated_user($dsl);
         if (!$user) {
             $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
-            $dsl->header('WWW-Authenticate' => "Blah Blah");
+            $dsl->header('WWW-Authenticate' => qq{$scheme realm="$realm"});
             $dsl->status(401); # Unauthorized
             return "Unauthorized to access realm: '$realm'";
         }

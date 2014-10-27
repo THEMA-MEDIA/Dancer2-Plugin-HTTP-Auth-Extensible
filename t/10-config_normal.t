@@ -11,6 +11,7 @@ BEGIN {
     set session => undef; # explicit
     set plugins => {
         'HTTP::Auth::Extensible' => {
+            default_realm => "realm_one",
             realms => {
                 realm_one => {
                     scheme => "Basic",
@@ -43,24 +44,27 @@ BEGIN {
             }
         }
     };
+    set logger      => "console";
+#   set log         => "core";
+    set show_errors => "1";
     
     use Dancer2::Plugin::HTTP::Auth::Extensible;
     no warnings 'uninitialized';
     
     get '/realm_one' => http_requires_authentication 'realm_one' => sub {
-        "Welcome to realm ONE"
+        "Welcome to realm_one"
     };
     
     get '/realm_two' => http_requires_authentication 'realm_two' => sub {
-        "Welcome to realm TWO"
+        "Welcome to realm_two"
     };
     
     get '/realm_bad' => http_requires_authentication 'realm_bad' => sub {
-        "Welcome to realm BAD" # we are not suposed to get here
+        "Welcome to realm_bad" # we are not suposed to get here
     };
     
     get '/realm'     => http_requires_authentication                sub {
-        "Welcome to the default realm"
+        "Welcome to realm_one, the default"
     };
     
 } # BEGIN
@@ -81,13 +85,13 @@ test_psgi $app, sub {
     my $res = $cb->( $req );
     is (
         $res->code,
-        500,
-        '500: "Internal server Error" when there is no realm to choose'
+        401,
+        'Status 401: Unauthorized for realm_one, the default'
     );
     is (
-        $res->content,
-        'Internal Server Error: "multiple realms without default"',
-        'Nice error message when not abble to choose default realm'
+        $res->headers->header('WWW-Authenticate'),
+        'Basic realm="realm_one"',
+        'HTTP-field: WWW-Authentication for realm_one, the default'
     );
 };
 
@@ -98,12 +102,12 @@ test_psgi $app, sub {
     is (
         $res->code,
         401,
-        '401: "Unauthorized" is the correct status code'
+        'Status 401: Unauthorized for realm_one'
     );
     is (
         $res->headers->header('WWW-Authenticate'),
         'Basic realm="realm_one"',
-        'Returns the right "WWW-Authentication" response header for realm ONE'
+        'HTTP-field: WWW-Authentication for realm_one'
     );
 };
 
@@ -114,12 +118,12 @@ test_psgi $app, sub {
     is (
         $res->code,
         401,
-        '401: "Unauthorized" is the correct status code'
+        'Status 401: Unauthorized for realm_two'
     );
     is (
         $res->headers->header('WWW-Authenticate'),
         'Basic realm="realm_two"',
-        'Returns the right "WWW-Authentication" response header for realm TWO'
+        'HTTP-field: WWW-Authentication for realm_two'
     );
 };
 
@@ -130,12 +134,12 @@ test_psgi $app, sub {
     is (
         $res->code,
         500,
-        '500: "Internal server Error" when there is a bad realm to choose'
+        'Status 500: realm does not exist'
     );
     is (
         $res->content,
-        'Internal Server Error: "required realm does not exist: \'bad\'"',
-        'Nice error message when choosing a bad realm name'
+        'Internal Server Error: "required realm does not exist: \'realm_bad\'"',
+        'Prompt 500: realm does not exist'
     );
 };
 
