@@ -241,24 +241,51 @@ sub http_require_authentication {
             }
             else {
                 $dsl->status(500);
-                return qq{Internal Server Error: "multiple realms without default"};
+                return
+                    qq{Internal Server Error: }
+                .   qq{"multiple realms without default"};
             }
         } # if (!$realm)
         
         unless (grep {$realm eq $_} keys %{ plugin_setting->{realms} }) {
             $dsl->status(500);
-            return qq{Internal Server Error: "required realm does not exist: '$realm'"};
+            return
+                qq{Internal Server Error: }
+            .   qq{"required realm does not exist: '$realm'"};
         }
         
-        my $scheme = "Basic"; # TODO get this from the realm
+        my $scheme;
+        
+        if (!$scheme) {
+            if (exists plugin_setting->{realms}->{$realm}->{scheme} ) {
+                $scheme = plugin_setting->{realms}->{$realm}->{scheme};
+            }
+            else {
+                $scheme = "Basic";
+            }
+        }
+        
+        unless (grep $scheme eq $_, ('Basic', 'Digest')) {
+            # we will no longer crash, maybe it's a new scheme ?
+#           $dsl->status(500);
+#           return
+#               qq{Internal Server Error: }
+#           .   qq{"authentication scheme not supported: '$scheme'"}
+            warn
+                qq{unknown scheme '$scheme'!};
+        }
         
         my $user = http_authenticated_user($dsl);
         if (!$user) {
             $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
-            $dsl->header('WWW-Authenticate' => qq{$scheme realm="$realm"});
+            $dsl->header('WWW-Authenticate' =>
+                qq{$scheme realm="$realm"}
+            );
             $dsl->status(401); # Unauthorized
-            return "Unauthorized to access realm: '$realm'";
+            return
+                qq{Unauthorized to access realm: }
+            .   qq{'$realm'};
         }
         return $coderef->($dsl);
     };
