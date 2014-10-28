@@ -47,6 +47,7 @@ BEGIN {
     set logger      => "console";
 #   set log         => "core";
     set show_errors => "1";
+    set serializer  => "YAML";
     
     use Dancer2::Plugin::HTTP::Auth::Extensible;
     no warnings 'uninitialized';
@@ -136,9 +137,9 @@ test_psgi $app, sub {
         500,
         'Status 500: realm does not exist'
     );
-    is (
+    like (
         $res->content,
-        'Internal Server Error: "required realm does not exist: \'realm_bad\'"',
+        qr{required realm does not exist: 'realm_bad'},
         'Prompt 500: realm does not exist'
     );
 };

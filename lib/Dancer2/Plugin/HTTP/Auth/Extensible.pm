@@ -224,7 +224,7 @@ it.
 
 sub http_require_authentication {
     my $dsl = shift;
-    my $realm = (@_ == 2) ? shift : undef;
+    my $realm = (@_ == 2) ? shift : http_default_realm($dsl);
     my $coderef = shift;
 
     return sub {
@@ -232,50 +232,11 @@ sub http_require_authentication {
             warn "Invalid http_require_authentication usage, please see docs";
         }
         
-        if (!$realm) {
-            if (exists plugin_setting->{default_realm} ) {
-              $realm = plugin_setting->{default_realm};
-            }
-            elsif (1 == keys %{ plugin_setting->{realms} }) {
-                ($realm) = keys %{ plugin_setting->{realms} };
-            }
-            else {
-                $dsl->status(500);
-                return
-                    qq{Internal Server Error: }
-                .   qq{"multiple realms without default"};
-            }
-        } # if (!$realm)
+        http_realm_exists($dsl, $realm); # can be in void, it dies when false
+        my $scheme = http_default_scheme($dsl, $realm);
+        http_scheme_known($dsl, $scheme); # only sends out a warning if not
         
-        unless (grep {$realm eq $_} keys %{ plugin_setting->{realms} }) {
-            $dsl->status(500);
-            return
-                qq{Internal Server Error: }
-            .   qq{"required realm does not exist: '$realm'"};
-        }
-        
-        my $scheme;
-        
-        if (!$scheme) {
-            if (exists plugin_setting->{realms}->{$realm}->{scheme} ) {
-                $scheme = plugin_setting->{realms}->{$realm}->{scheme};
-            }
-            else {
-                $scheme = "Basic";
-            }
-        }
-        
-        unless (grep $scheme eq $_, ('Basic', 'Digest')) {
-            # we will no longer crash, maybe it's a new scheme ?
-#           $dsl->status(500);
-#           return
-#               qq{Internal Server Error: }
-#           .   qq{"authentication scheme not supported: '$scheme'"}
-            warn
-                qq{unknown scheme '$scheme'!};
-        }
-        
-        my $user = http_authenticated_user($dsl);
+        my $user = http_authenticated_user($dsl, $realm);
         if (!$user) {
             $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
@@ -410,10 +371,16 @@ The details you get back will depend upon the authentication provider in use.
 
 sub http_authenticated_user {
     my $dsl = shift;
-    my $session = $dsl->app->session;
+    my $realm = shift;
+#   my $session = $dsl->app->session; # we don't do sessions
+    
+#   http_realm_exists($dsl, $realm); # can be in void, it dies when false
+#   my $scheme = http_default_scheme($dsl, $realm);
+#   http_scheme_known($dsl, $scheme); # only sends out a warning if not
 
-    if (my $user = $session->read('logged_in_user')) {
-        my $realm    = $session->read('logged_in_user_realm');
+    my $user;
+    ($user, $realm) = http_authenticate_user($dsl, $realm);
+    if ($user) {
         my $provider = auth_provider($dsl, $realm);
         return $provider->get_user_details($user, $realm);
     } else {
@@ -511,7 +478,24 @@ C<($success, $realm)>.
 =cut
 
 sub http_authenticate_user {
-    my ($dsl, $username, $password, $realm) = @_;
+    my $dsl = shift;
+    my $realm = shift || http_default_realm($dsl);
+    
+    http_realm_exists($dsl, $realm); # can be in void, it dies when false
+    my $scheme = http_default_scheme($dsl, $realm);
+    http_scheme_known($dsl, $scheme); # only sends out a warning if not
+
+    unless ($dsl->request->header('Authorization')) {
+        return wantarray ? (0, undef) : 0;
+    }
+    my ($username, $password) = $dsl->request->headers->authorization_basic;
+    
+#   my $auth
+#   = HTTP::Headers::ActionPack::Authorization::Basic
+#     ->new_from_string($dsl->request->header('Authorization'));
+#   my $username = $auth->username;
+#   my $password = $auth->password;
+    
     my @realms_to_check = $realm? ($realm) : (keys %{ $settings->{realms} });
 
     for my $realm (@realms_to_check) {
@@ -519,7 +503,7 @@ sub http_authenticate_user {
         my $provider = auth_provider($dsl, $realm);
         if ($provider->authenticate_user($username, $password)) {
             $dsl->app->log ( debug => "$realm accepted user $username");
-            return wantarray ? (1, $realm) : 1;
+            return wantarray ? ($username, $realm) : $username;
         }
     }
 
@@ -532,6 +516,85 @@ sub http_authenticate_user {
 }
 
 register http_authenticate_user => \&http_authenticate_user;
+
+sub http_default_realm {
+    my $dsl = shift;
+    
+    my $realm;
+    
+    if (exists plugin_setting->{default_realm} ) {
+        $realm = plugin_setting->{default_realm};
+    }
+    elsif (1 == keys %{ plugin_setting->{realms} }) {
+        ($realm) = keys %{ plugin_setting->{realms} };
+    }
+    else {
+        die
+            qq{Internal Server Error: }
+        .   qq{"multiple realms without default"};
+    }
+    
+    return $realm;
+    
+} # http_default_realm
+
+register http_default_realm => \&http_default_realm;
+
+
+sub http_realm_exists {
+    my $dsl = shift;
+    my $realm = shift || http_default_realm($dsl);
+
+    unless (grep {$realm eq $_} keys %{ plugin_setting->{realms} }) {
+        die
+            qq{Internal Server Error: }
+        .   qq{"required realm does not exist: '$realm'"};
+    }
+    
+    return $realm;
+    
+} # http_realm_exists
+
+register http_realm_exists => \&http_realm_exists;
+
+
+sub http_default_scheme {
+    my $dsl = shift;
+    my $realm = shift || http_default_realm($dsl);
+
+    http_realm_exists($dsl, $realm);
+    
+    my $scheme;
+    
+    if (exists plugin_setting->{realms}->{$realm}->{scheme} ) {
+        $scheme = plugin_setting->{realms}->{$realm}->{scheme};
+    }
+    else {
+        $scheme = "Basic";
+    }
+    
+    return $scheme;
+    
+} # http_default_schema
+
+register http_default_scheme => \&http_default_scheme;
+
+
+sub http_scheme_known {
+    my $dsl = shift;
+    my $scheme = shift;
+
+    unless (grep $scheme eq $_, ('Basic', 'Digest')) {
+        warn
+            qq{unknown scheme '$scheme'!};
+        return;
+    }
+    
+    return $scheme;
+    
+} # http_scheme_known
+
+register http_scheme_known => \&http_scheme_known;
 
 
 =back
@@ -583,7 +646,7 @@ sub auth_provider {
 
     # OK, we need to find out what provider this realm uses, and get an instance
     # of that provider, configured with the settings from the realm.
-    my $realm_settings = $settings->{realms}{$realm}
+    my $realm_settings = plugin_setting->{realms}->{$realm}
         or die "Invalid realm $realm";
     my $provider_class = $realm_settings->{provider}
         or die "No provider configured - consult documentation for "

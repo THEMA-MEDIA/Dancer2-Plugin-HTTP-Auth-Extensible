@@ -13,14 +13,14 @@ BEGIN {
         'HTTP::Auth::Extensible' => {
             realms => {
                 some_realm => {
-                    scheme => "Basic",
+#                   scheme => "Basic",
                     provider => "Config",
-                    users => (
+                    users => [
                       { user => "dave",
                         pass => "beer",
                         name => "David Precious",
                       },
-                    )
+                    ]
                 }
             }
         }
