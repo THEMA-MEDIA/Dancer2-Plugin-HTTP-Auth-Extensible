@@ -241,12 +241,12 @@ sub http_require_authentication {
             $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
             $dsl->header('WWW-Authenticate' =>
-                qq{$scheme realm="$realm"}
+                qq|$scheme realm="$realm"|
             );
             $dsl->status(401); # Unauthorized
             return
-                qq{Unauthorized to access realm: }
-            .   qq{'$realm'};
+                qq|Unauthorized to access realm: |
+            .   qq|'$realm'|;
         }
         return $coderef->($dsl);
     };
@@ -311,22 +311,35 @@ register http_requires_all_roles => \&http_require_all_roles;
 sub _build_wrapper {
     my $dsl = shift;
     my $require_role = shift;
+    my $realm = (@_ == 3) ? shift : http_default_realm($dsl);
     my $coderef = shift;
     my $mode = shift;
 
-    my @role_list = ref $require_role eq 'ARRAY' 
-        ? @$require_role
-        : $require_role;
     return sub {
-        my $user = http_authenticated_user($dsl);
+        if (!$coderef || ref $coderef ne 'CODE') {
+            warn "Invalid http_require_authentication usage, please see docs";
+        }
+        
+        http_realm_exists($dsl, $realm); # can be in void, it dies when false
+        my $scheme = http_default_scheme($dsl, $realm);
+        http_scheme_known($dsl, $scheme); # only sends out a warning if not
+        
+        my $user = http_authenticated_user($dsl, $realm);
         if (!$user) {
             $dsl->execute_hook('http_authentication_required', $coderef);
             # TODO: see if any code executed by that hook set up a response
-            return $dsl->redirect($dsl->uri_for(
-                $loginpage,
-                { return_url => $dsl->request->request_uri }));
+            $dsl->header('WWW-Authenticate' =>
+                qq|$scheme realm="$realm"|
+            );
+            $dsl->status(401); # Unauthorized
+            return
+                qq|Unauthorized to access realm: |
+            .   qq|'$realm'|;
         }
-
+        
+        my @role_list = ref $require_role eq 'ARRAY' 
+            ? @$require_role
+            : $require_role;
         my $role_match;
         if ($mode eq 'single') {
             for (user_roles($dsl)) {
@@ -346,19 +359,23 @@ sub _build_wrapper {
                 }
             }
         }
+        if (!$role_match) {
 
-        if ($role_match) {
-            # We're happy with their roles, so go head and execute the route
-            # handler coderef.
-            return $coderef->($dsl);
+            $dsl->execute_hook('http_permission_denied', $coderef);
+            # TODO: see if any code executed by that hook set up a response
+            $dsl->status(403); # Forbidden
+            return
+                qq|Permission denied for resource: |
+            .   qq|'@{[ $dsl->request->path ]}'|;
         }
+        
+        # We're happy with their roles, so go head and execute the route
+        # handler coderef.
+        return $coderef->($dsl);
 
-        $dsl->execute_hook('http_permission_denied', $coderef);
-        # TODO: see if any code executed by that hook set up a response
-        return $dsl->redirect(
-            $dsl->uri_for($deniedpage, { return_url => $dsl->request->request_uri }));
-    };
-}
+    }; # return sub
+} # _build_wrapper
+
 
 
 =item logged_in_user
@@ -371,16 +388,13 @@ The details you get back will depend upon the authentication provider in use.
 
 sub http_authenticated_user {
     my $dsl = shift;
-    my $realm = shift;
-#   my $session = $dsl->app->session; # we don't do sessions
+    my $realm = shift || http_default_realm($dsl);
     
-#   http_realm_exists($dsl, $realm); # can be in void, it dies when false
-#   my $scheme = http_default_scheme($dsl, $realm);
-#   http_scheme_known($dsl, $scheme); # only sends out a warning if not
+    http_realm_exists($dsl, $realm); # can be in void, it dies when false
 
     my $user;
     ($user, $realm) = http_authenticate_user($dsl, $realm);
-    if ($user) {
+    if ($realm) { # undef unless http_authenticate_user
         my $provider = auth_provider($dsl, $realm);
         return $provider->get_user_details($user, $realm);
     } else {
@@ -412,7 +426,7 @@ sub user_has_role {
     if (@_ == 2) {
         ($username, $want_role) = @_;
     } else {
-        $username  = $session->read('logged_in_user');
+        $username  = $dsl->vars->{'http_user'};
         $want_role = shift;
     }
 
@@ -443,7 +457,7 @@ sub user_roles {
     my ($dsl, $username, $realm) = @_;
     my $session = $dsl->app->session;
 
-    $username = $session->read('logged_in_user') unless defined $username;
+    $username = $dsl->vars->{'http_user'} unless defined $username;
 
     my $search_realm = ($realm ? $realm : '');
 
@@ -503,6 +517,8 @@ sub http_authenticate_user {
         my $provider = auth_provider($dsl, $realm);
         if ($provider->authenticate_user($username, $password)) {
             $dsl->app->log ( debug => "$realm accepted user $username");
+            $dsl->vars->{'http_user' } = $username;
+            $dsl->vars->{'http_realm'} = $realm;
             return wantarray ? ($username, $realm) : $username;
         }
     }
@@ -530,8 +546,8 @@ sub http_default_realm {
     }
     else {
         die
-            qq{Internal Server Error: }
-        .   qq{"multiple realms without default"};
+            qq|Internal Server Error: |
+        .   qq|"multiple realms without default"|;
     }
     
     return $realm;
@@ -547,8 +563,8 @@ sub http_realm_exists {
 
     unless (grep {$realm eq $_} keys %{ plugin_setting->{realms} }) {
         die
-            qq{Internal Server Error: }
-        .   qq{"required realm does not exist: '$realm'"};
+            qq|Internal Server Error: |
+        .   qq|"required realm does not exist: '$realm'"|;
     }
     
     return $realm;
@@ -586,7 +602,7 @@ sub http_scheme_known {
 
     unless (grep $scheme eq $_, ('Basic', 'Digest')) {
         warn
-            qq{unknown scheme '$scheme'!};
+            qq|unknown scheme '$scheme'!|;
         return;
     }
     
@@ -633,13 +649,10 @@ management within your application.
 {
 my %realm_provider;
 sub auth_provider {
-    my ($dsl, $realm) = @_;
-    my $session = $dsl->app->session;
-
-    # If no realm was provided, but we have a logged in user, use their realm:
-    if (!$realm && $session->read('logged_in_user')) {
-        $realm = $session->read('logged_in_user_realm');
-    }
+    my $dsl = shift;
+    my $realm = shift || http_default_realm($dsl);
+   
+    http_realm_exists($dsl, $realm); # can be in void, it dies when false
 
     # First, if we already have a provider for this realm, go ahead and use it:
     return $realm_provider{$realm} if exists $realm_provider{$realm};
