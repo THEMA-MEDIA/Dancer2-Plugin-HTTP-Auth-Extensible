@@ -12,23 +12,6 @@ use HTTP::Headers::ActionPack::WWWAuthenticate;
 
 our $VERSION = '0.001';
 
-my $settings;
-
-my $loginpage;
-my $userhomepage;
-my $logoutpage;
-my $deniedpage;
-my $exitpage;
-
-my $load_settings = sub {
-    $settings = plugin_setting;
-
-    $loginpage = $settings->{login_page} || '/login';
-    $userhomepage = $settings->{user_home_page} || '/';
-    $logoutpage = $settings->{logout_page} || '/logout';
-    $deniedpage = $settings->{denied_page} || '/login/denied';
-    $exitpage = $settings->{exit_page};
-};
 
 =head1 NAME
 
@@ -61,51 +44,54 @@ Configure the plugin to use the authentication provider class you wish to use:
 
 The configuration you provide will depend on the authentication provider module
 in use.  For a simple example, see
-L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Config>.
+L<Dancer2::Plugin::Auth::Extensible::Provider::Config>.
 
 Define that a user must be logged in and have the proper permissions to 
 access a route:
 
-    get '/secret' => require_role Confidant => sub { tell_secrets(); };
+    get '/secret' => http_require_role Confidant => sub { tell_secrets(); };
 
 Define that a user must be logged in to access a route - and find out who is
 logged in with the C<logged_in_user> keyword:
 
-    get '/users' => require_login sub {
-        my $user = logged_in_user;
+    get '/users' => http_require_authentication sub {
+        my $user = http_authenticated_user;
         return "Hi there, $user->{username}";
     };
 
 =head1 AUTHENTICATION PROVIDERS
 
-For flexibility, this authentication framework uses simple authentication
+This framework builds on top of L<Dancer2::Plugin::Auth::Extensible>. For a
+full explenation of the providers check that manual.
+
+For flexibility, that authentication framework uses simple authentication
 provider classes, which implement a simple interface and do whatever is required
 to authenticate a user against the chosen source of authentication.
 
 For an example of how simple provider classes are, so you can build your own if
 required or just try out this authentication framework plugin easily, 
-see L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Example>.
+see L<Dancer2::Plugin::Auth::Extensible::Provider::Example>.
 
-This framework supplies the following providers out-of-the-box:
+That framework supplies the following providers out-of-the-box:
 
 =over 4
 
-=item L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Unix>
+=item L<Dancer2::Plugin::Auth::Extensible::Provider::Unix>
 
 Authenticates users using system accounts on Linux/Unix type boxes
 
-=item L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Database>
+=item L<Dancer2::Plugin::Auth::Extensible::Provider::Database>
 
 Authenticates users stored in a database table
 
-=item L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Config>
+=item L<Dancer2::Plugin::Auth::Extensible::Provider::Config>
 
 Authenticates users stored in the app's config
 
 =back
 
 Need to write your own?  Just subclass
-L<Dancer2::Plugin::HTTP::Auth::Extensible::Provider::Base> and implement the required
+L<Dancer2::Plugin::Auth::Extensible::Provider::Base> and implement the required
 methods, and you're good to go!
 
 =head1 CONTROLLING ACCESS TO ROUTES
@@ -114,111 +100,60 @@ Keywords are provided to check if a user is logged in / has appropriate roles.
 
 =over
 
-=item require_login - require the user to be logged in
+=item http_require_authentication - require the user to be authenticated
 
-    get '/dashboard' => require_login sub { .... };
+    get '/dashboard' => http_require_authentication sub { .... };
 
-If the user is not logged in, they will be redirected to the login page URL to
-log in.  The default URL is C</login> - this may be changed with the
-C<login_url> option.
+If the user can not be authenticated, they will be recieve a HTTP response
+status of C</401 Not Authorized>. Remember, it should actualy say 'Not
+Authenticated'.
 
-=item require_role - require the user to have a specified role
+Optionally, a realm name can be specified as an extra argument:
 
-    get '/beer' => require_role BeerDrinker => sub { ... };
+    get 'outer_space'
+        => http_require_authentication 'outer_space'
+        => sub { .... };
 
-Requires that the user be logged in as a user who has the specified role.  If
-the user is not logged in, they will be redirected to the login page URL.  If
-they are logged in, but do not have the required role, they will be redirected
-to the access denied URL.
+=item http_require_role - require the user to have a specified role
 
-=item require_any_roles - require the user to have one of a list of roles
+    get '/beer' => http_require_role BeerDrinker => sub { ... };
+
+Requires that the user can be authenticated as a user who has the specified
+role.  If the user can not be authenticated, they will get a C<401 Unautorized>
+response. If they are logged in, but do not have the required role, they will
+recieve a C<403 Forbidden> response.
+
+=item http_require_any_roles - require the user to have one of a list of roles
 
     get '/drink' => require_any_role [qw(BeerDrinker VodaDrinker)] => sub {
         ...
     };
 
-Requires that the user be logged in as a user who has any one (or more) of the
-roles listed.  If the user is not logged in, they will be redirected to the
-login page URL.  If they are logged in, but do not have any of the specified
-roles, they will be redirected to the access denied URL.
+Same as L<http_require_role> except that a user has any one (or more) of the
+roles listed.
 
 =item require_all_roles - require the user to have all roles listed
 
     get '/foo' => require_all_roles [qw(Foo Bar)] => sub { ... };
 
-Requires that the user be logged in as a user who has all of the roles listed.
-If the user is not logged in, they will be redirected to the login page URL.  If
-they are logged in but do not have all of the specified roles, they will be
-redirected to the access denied URL.
+Same as L<http_require_role> except that a user has all of the roles listed.
 
 =back
 
-=head2 Replacing the Default C< /login > and C< /login/denied > Routes
+=head2 Replacing the Default C< 401 > and C< 403 > Pages
 
-By default, the plugin adds a route to present a simple login form at that URL.
-If you would rather add your own, set the C<no_default_pages> setting to a true
-value, and define your own route which responds to C</login> with a login page.
-Alternatively you can let DPAE add the routes and handle the status codes, etc.
-and simply define the setting C<login_page_handler> and/or
-C<permission_denied_page_handler> with the name of a subroutine to be called to
-handle the route. Note that it must be a fully qualified sub. E.g.
-
-    plugins:
-      HTTP::Auth::Extensible:
-        login_page_handler: 'My::App:login_page_handler'
-        permission_denied_page_handler: 'My::App:permission_denied_page_handler'
-
-Then in your code you might simply use a template:
-
-    sub permission_denied_page_handler {
-        template 'account/login';
-    }
-
-
-If the user is logged in, but tries to access a route which requires a specific
-role they don't have, they will be redirected to the "permission denied" page
-URL, which defaults to C</login/denied> but may be changed using the
-C<denied_page> option.
-
-Again, by default a route is added to respond to that URL with a default page;
-again, you can disable this by setting C<no_default_pages> and creating your
-own.
-
-This would still leave the routes C<post '/login'> and C<any '/logout'>
-routes in place. To disable them too, set the option C<no_login_handler> 
-to a true value. In this case, these routes should be defined by the user,
-and should do at least the following:
-
-    post '/login' => sub {
-        my ($success, $realm) = authenticate_user(
-            params->{username}, params->{password}
-        );
-        if ($success) {
-            session logged_in_user => params->{username};
-            session logged_in_user_realm => $realm;
-            # other code here
-        } else {
-            # authentication failed
-        }
-    };
-    
-    any '/logout' => sub {
-        session->destroy;
-    };
-    
-If you want to use the default C<post '/login'> and C<any '/logout'> routes
-you can configure them. See below.
 
 =head2 Keywords
 
 =over
 
-=item require_login
+=item http_require_authentication
 
-Used to wrap a route which requires a user to be logged in order to access
+Used to wrap a route which requires a user can be authenticated to access
 it.
 
-    get '/secret' => require_login sub { .... };
+    get '/secret' => http_require_authentication sub { .... };
+    get '/secret' => http_require_authentication 'realm-name' sub { .... };
 
 =cut
 
@@ -238,14 +173,14 @@ sub http_require_authentication {
         
         my $user = http_authenticated_user($dsl, $realm);
         if (!$user) {
-            $dsl->execute_hook('http_authentication_required', $coderef);
-            # TODO: see if any code executed by that hook set up a response
+#           $dsl->execute_hook('http_authentication_required', $coderef);
+#           # TODO: see if any code executed by that hook set up a response
             $dsl->header('WWW-Authenticate' =>
                 qq|$scheme realm="$realm"|
             );
             $dsl->status(401); # Unauthorized
             return
-                qq|Unauthorized to access realm: |
+                qq|Authentication required to access realm: |
             .   qq|'$realm'|;
         }
         return $coderef->($dsl);
@@ -257,17 +192,19 @@ register http_requires_authentication  => \&http_require_authentication;
 
 =item require_role
 
-Used to wrap a route which requires a user to be logged in as a user with the
+Used to wrap a route which requires a user can be authenticated with the
 specified role in order to access it.
 
     get '/beer' => require_role BeerDrinker => sub { ... };
+    get '/beer' => require_role BeerDrinker 'realm-name' => sub { ... };
 
 You can also provide a regular expression, if you need to match the role using a
 regex - for example:
 
-    get '/beer' => require_role qr/Drinker$/ => sub { ... };
+    get '/beer' => http_require_role qr/Drinker$/ => sub { ... };
 
 =cut
+
 sub http_require_role {
     return _build_wrapper(@_, 'single');
 }
@@ -275,12 +212,13 @@ sub http_require_role {
 register http_require_role  => \&http_require_role;
 register http_requires_role => \&http_require_role;
 
-=item require_any_role
+=item http_require_any_role
 
-Used to wrap a route which requires a user to be logged in as a user with any
+Used to wrap a route which requires a user can be authenticated with any
 one (or more) of the specified roles in order to access it.
 
-    get '/foo' => require_any_role [qw(Foo Bar)] => sub { ... };
+    get '/foo' => http_require_any_role [qw(Foo Bar)] => sub { ... };
+    get '/foo' => http_require_any_role [qw(Foo Bar)] 'realm-name' => sub { ... };
 
 =cut
 
@@ -291,12 +229,13 @@ sub http_require_any_role {
 register http_require_any_role  => \&http_require_any_role;
 register http_requires_any_role => \&http_require_any_role;
 
-=item require_all_roles
+=item http_require_all_roles
 
-Used to wrap a route which requires a user to be logged in as a user with all
+Used to wrap a route which requires a user can be authenticated with all
 of the roles listed in order to access it.
 
-    get '/foo' => require_all_roles [qw(Foo Bar)] => sub { ... };
+    get '/foo' => http_require_all_roles [qw(Foo Bar)] => sub { ... };
+    get '/foo' => http_require_all_roles [qw(Foo Bar)] 'realm-name' => sub { ... };
 
 =cut
 
@@ -326,14 +265,14 @@ sub _build_wrapper {
         
         my $user = http_authenticated_user($dsl, $realm);
         if (!$user) {
-            $dsl->execute_hook('http_authentication_required', $coderef);
-            # TODO: see if any code executed by that hook set up a response
+#           $dsl->execute_hook('http_authentication_required', $coderef);
+#           # TODO: see if any code executed by that hook set up a response
             $dsl->header('WWW-Authenticate' =>
                 qq|$scheme realm="$realm"|
             );
             $dsl->status(401); # Unauthorized
             return
-                qq|Unauthorized to access realm: |
+                qq|Authentication required to access realm: |
             .   qq|'$realm'|;
         }
         
@@ -361,8 +300,8 @@ sub _build_wrapper {
         }
         if (!$role_match) {
 
-            $dsl->execute_hook('http_permission_denied', $coderef);
-            # TODO: see if any code executed by that hook set up a response
+#           $dsl->execute_hook('http_permission_denied', $coderef);
+#           # TODO: see if any code executed by that hook set up a response
             $dsl->status(403); # Forbidden
             return
                 qq|Permission denied for resource: |
@@ -378,9 +317,9 @@ sub _build_wrapper {
 
 
 
-=item logged_in_user
+=item authenticated_user
 
-Returns a hashref of details of the currently logged-in user, if there is one.
+Returns a hashref of details of the currently authenticated user, if there is one.
 
 The details you get back will depend upon the authentication provider in use.
 
@@ -426,7 +365,7 @@ sub user_has_role {
     if (@_ == 2) {
         ($username, $want_role) = @_;
     } else {
-        $username  = $dsl->vars->{'http_user'};
+        $username  = http_username($dsl);
         $want_role = shift;
     }
 
@@ -457,7 +396,7 @@ sub user_roles {
     my ($dsl, $username, $realm) = @_;
     my $session = $dsl->app->session;
 
-    $username = $dsl->vars->{'http_user'} unless defined $username;
+    $username = http_username($dsl) unless defined $username;
 
     my $search_realm = ($realm ? $realm : '');
 
@@ -470,7 +409,7 @@ register user_roles => \&user_roles;
 
 =item authenticate_user
 
-Usually you'll want to let the built-in login handling code deal with
+Usually you'll want to let the built-in authentication handling code deal with
 authenticating users, but in case you need to do it yourself, this keyword
 accepts a username and password, and optionally a specific realm, and checks
 whether the username and password are valid.
@@ -502,23 +441,28 @@ sub http_authenticate_user {
     unless ($dsl->request->header('Authorization')) {
         return wantarray ? (0, undef) : 0;
     }
-    my ($username, $password) = $dsl->request->headers->authorization_basic;
+#   my ($username, $password) = $dsl->request->headers->authorization_basic;
     
-#   my $auth
-#   = HTTP::Headers::ActionPack::Authorization::Basic
-#     ->new_from_string($dsl->request->header('Authorization'));
-#   my $username = $auth->username;
-#   my $password = $auth->password;
+    my $auth
+    = HTTP::Headers::ActionPack::Authorization::Basic
+      ->new_from_string($dsl->request->header('Authorization'));
+    my $username = $auth->username;
+    my $password = $auth->password;
     
-    my @realms_to_check = $realm? ($realm) : (keys %{ $settings->{realms} });
+    # TODO For now it only does Basic authentication
+    #      Once we have Digest and others, it needs to choose itself
+    
+    my @realms_to_check = $realm? ($realm) : (keys %{ plugin_setting->{realms} });
 
     for my $realm (@realms_to_check) {
         $dsl->app->log ( debug  => "Attempting to authenticate $username against realm $realm");
         my $provider = auth_provider($dsl, $realm);
         if ($provider->authenticate_user($username, $password)) {
             $dsl->app->log ( debug => "$realm accepted user $username");
-            $dsl->vars->{'http_user' } = $username;
-            $dsl->vars->{'http_realm'} = $realm;
+            $dsl->vars->{'http_username'} = $username;
+            # don't do `http_username($dsl, $username)`, SECURITY BREACH
+            $dsl->vars->{'http_realm'   } = $realm;
+            # don't do `http_username($dsl, $username)`, SECURITY BREACH
             return wantarray ? ($username, $realm) : $username;
         }
     }
@@ -554,8 +498,7 @@ sub http_default_realm {
     
 } # http_default_realm
 
-register http_default_realm => \&http_default_realm;
-
+#register http_default_realm => \&http_default_realm;
 
 sub http_realm_exists {
     my $dsl = shift;
@@ -571,7 +514,7 @@ sub http_realm_exists {
     
 } # http_realm_exists
 
-register http_realm_exists => \&http_realm_exists;
+#register http_realm_exists => \&http_realm_exists;
 
 
 sub http_default_scheme {
@@ -593,7 +536,7 @@ sub http_default_scheme {
     
 } # http_default_schema
 
-register http_default_scheme => \&http_default_scheme;
+#register http_default_scheme => \&http_default_scheme;
 
 
 sub http_scheme_known {
@@ -610,8 +553,89 @@ sub http_scheme_known {
     
 } # http_scheme_known
 
-register http_scheme_known => \&http_scheme_known;
+#register http_scheme_known => \&http_scheme_known;
 
+=item http_username - gets or sets the name of the authenticated user
+
+WARNING: setting the username will issue a "SECURITY BREACH" warning. You
+rarely want to impersonate another user.
+
+    $my username = http_username;
+    http_username('new name');
+    http_username 'new name';
+
+If not inside an authenticated route (there is no authenticated user),
+C< http_username > returns undef.
+
+=cut
+
+sub http_username {
+    my $dsl = shift;
+    
+    unless ( exists $dsl->vars->{http_username} ) {
+        $dsl->app->log( warning =>
+            qq|'http_username' should only be used in an authenticated route|
+        );
+    }
+    
+    if (@_ == 1) { # CAUTION: use with care
+        $dsl->vars->{http_username} = shift;
+        my $message
+        =   qq|POTENTIONAL SECURITY BREACH: |
+        .   qq|"impersonating different user: '|
+        .   $dsl->vars->{http_username}
+        .   qq|'"|;
+        warn $message;
+        $dsl->app->log ( warning => $message );
+    }
+    
+    return unless exists $dsl->vars->{http_username};
+    return $dsl->vars->{http_username};
+    
+} # http_username
+
+register http_username => \&http_username;
+
+=item http_realm - gets or sets the real of the current request
+
+WARNING: setting the realm will issue a "SECURITY BREACH" warning. You
+rarely want to switch to another realm
+
+    $my realm = http_realm;
+    http_realm('new name');
+    http_realm 'new name';
+
+If not inside an authenticated route (there is no authenticated user),
+C< http_realm > returns undef.
+
+=cut
+
+sub http_realm {
+    my $dsl = shift;
+    
+    unless ( exists $dsl->vars->{http_realm} ) {
+        $dsl->app->log( warning =>
+            qq|'http_realm' should only be used in an authenticated route|
+        );
+    }
+    
+    if (@_ == 1) { # CAUTION: use with care
+        $dsl->vars->{http_realm} = shift;
+        my $message
+        =   qq|POTENTIONAL SECURITY BREACH: |
+        .   qq|"switching to different realm: '|
+        .   $dsl->vars->{http_realm}
+        .   qq|'"|;
+        warn $message;
+        $dsl->app->log ( warning => $message );
+    }
+    
+    return unless exists $dsl->vars->{http_realm};
+    return $dsl->vars->{http_realm};
+    
+} # http_realm
+
+register http_realm => \&http_realm;
 
 =back
 
@@ -635,18 +659,20 @@ In your application's configuation file:
                 realm_one:
                     provider: Database
                         db_connection_name: 'foo'
+            
+            default_realm: realm_xxx
+            # If there is more than one realm, is needed if no 'realm' is
+            # specified in http_requires_authentication.
 
-B<Please note> that you B<must> have a session provider configured.  The 
-authentication framework requires sessions in order to track information about 
+B<Please note> that you B<not have to> have a session provider configured.  The 
+authentication framework B<does not> require sessions in order to track information about 
 the currently logged in user.
-Please see L<Dancer2::Session> for information on how to configure session 
-management within your application.
 
 =cut
 
+{
 # Given a realm, returns a configured and ready to use instance of the provider
 # specified by that realm's config.
-{
 my %realm_provider;
 sub auth_provider {
     my $dsl = shift;
@@ -690,7 +716,7 @@ register_plugin for_versions => [qw(1 2)];
 # a list in future, this will need changing)
 sub _try_realms {
     my ($method, @args);
-    for my $realm (keys %{ $settings->{realms} }) {
+    for my $realm (keys %{ plugin_setting->{realms} }) {
         my $provider = auth_provider($realm);
         if (!$provider->can($method)) {
             die "Provider $provider does not provide a $method method!";
@@ -706,138 +732,8 @@ on_plugin_import {
     my $dsl = shift;
     my $app = $dsl->app;
 
-    # get settings
-    $load_settings->();
-
-    if ( !$settings->{no_default_pages} ) {
-        $app->add_route(
-            method => 'get',
-            regexp => $loginpage,
-            code => sub {
-                my $dsl = shift;
-
-                if(http_authenticated_user($dsl)) {
-                    $dsl->redirect($dsl->params->{return_url} || $userhomepage);
-                }
-
-                $dsl->response->status(401);
-                my $_default_login_page =
-                    $settings->{login_page_handler} || '_default_login_page';
-                no strict 'refs';
-                return &{$_default_login_page}($dsl);
-            });
-
-        $app->add_route(
-            method => 'post',
-            regexp => $loginpage,
-            code => \&_post_login_route,
-        );
-
-        for my $method (qw/get post/) {
-            $app->add_route(
-                method => $method,
-                regexp => $logoutpage,
-                code => \&_logout_route,
-            );
-        }
-    }
 };
 
-# implementation of post login route
-sub _post_login_route {
-    my $app = shift;
-
-    # For security, ensure the username and password are straight scalars; if
-    # the app is using a serializer and we were sent a blob of JSON, they could
-    # have come from that JSON, and thus could be hashrefs (JSON SQL injection)
-    # - for database providers, feeding a carefully crafted hashref to the SQL
-    # builder could result in different SQL to what we'd expect.
-    # For instance, if we pass password => params->{password} to an SQL builder,
-    # we'd expect the query to include e.g. "WHERE password = '...'" (likely
-    # with paremeterisation) - but if params->{password} was something
-    # different, e.g. { 'like' => '%' }, we might end up with some SQL like
-    # WHERE password LIKE '%' instead - which would not be a Good Thing.
-    my ($username, $password) = @{ $app->app->request->params() }{qw(username password)};
-    for ($username, $password) {
-        if (ref $_) {
-            # TODO: handle more cleanly
-            die "Attempt to pass a reference as username/password blocked";
-        }
-    }
-
-    if(http_authenticated_user($app)) {
-        $app->redirect($app->params->{return_url} || $userhomepage);
-    }
-
-    my ($success, $realm) = http_authenticate_user(
-        $app, $username, $password
-    );
-    if ($success) {
-        $app->app->session->write(logged_in_user => $username);
-        $app->app->session->write(logged_in_user_realm => $realm);
-        $app->log(core => "Realm is $realm");
-        $app->redirect($app->request->params->{return_url} || $userhomepage);
-    } else {
-        $app->request->vars->{login_failed}++;
-        $app->forward($loginpage, { login_failed => 1 }, { method => 'GET' });
-    }
-}
-
-# implementation of logout route
-sub _logout_route {
-    my $app = shift;
-    my $req = $app->request;
-
-    $app->destroy_session;
-
-    if ($req->params->{return_url}) {
-        $app->redirect($req->params->{return_url});
-    } elsif ($exitpage) {
-        $app->redirect($exitpage);
-    } else {
-        # TODO: perhaps make this more configurable, perhaps by attempting to
-        # render a template first.
-        return "OK, logged out successfully.";
-    }
-}
-
-sub _default_permission_denied_page {
-    return <<PAGE
-<h1>Permission Denied</h1>
-
-<p>
-Sorry, you're not allowed to access that page.
-</p>
-PAGE
-}
-
-sub _default_login_page {
-    my $dsl = shift;
-    my $login_fail_message = $dsl->request->vars->{login_failed}
-         ? "<p>LOGIN FAILED</p>"
-         : "";
-     my $return_url = $dsl->request->params->{return_url} || '';
-     return <<PAGE;
-<h1>Login Required</h1>
-
-<p>
-You need to log in to continue.
-</p>
-
-$login_fail_message
-
-<form method="post">
-<label for="username">Username:</label>
-<input type="text" name="username" id="username">
-<br />
-<label for="password">Password:</label>
-<input type="password" name="password" id="password">
-<br />
-<input type="hidden" name="return_url" value="$return_url">
-<input type="submit" value="Login">
-</form>
-PAGE
-}
 
 # Replacement for much maligned and misunderstood smartmatch operator
 sub _smart_match {
