@@ -10,7 +10,7 @@ use Class::Load qw(try_load_class);
 use HTTP::Headers::ActionPack::Authorization;
 use HTTP::Headers::ActionPack::WWWAuthenticate;
 
-our $VERSION = '0.001';
+our $VERSION = '0.100';
 
 
 =head1 NAME
@@ -167,16 +167,12 @@ sub http_require_authentication {
             warn "Invalid http_require_authentication usage, please see docs";
         }
         
-        http_realm_exists($dsl, $realm); # can be in void, it dies when false
-        my $scheme = http_default_scheme($dsl, $realm);
-        http_scheme_known($dsl, $scheme); # only sends out a warning if not
-        
         my $user = http_authenticated_user($dsl, $realm);
         if (!$user) {
 #           $dsl->execute_hook('http_authentication_required', $coderef);
 #           # TODO: see if any code executed by that hook set up a response
             $dsl->header('WWW-Authenticate' =>
-                qq|$scheme realm="$realm"|
+                qq|@{[ http_default_scheme($dsl) ]} realm="$realm"|
             );
             $dsl->status(401); # Unauthorized
             return
@@ -259,16 +255,12 @@ sub _build_wrapper {
             warn "Invalid http_require_authentication usage, please see docs";
         }
         
-        http_realm_exists($dsl, $realm); # can be in void, it dies when false
-        my $scheme = http_default_scheme($dsl, $realm);
-        http_scheme_known($dsl, $scheme); # only sends out a warning if not
-        
         my $user = http_authenticated_user($dsl, $realm);
         if (!$user) {
 #           $dsl->execute_hook('http_authentication_required', $coderef);
 #           # TODO: see if any code executed by that hook set up a response
             $dsl->header('WWW-Authenticate' =>
-                qq|$scheme realm="$realm"|
+                qq|@{[ http_default_scheme($dsl) ]} realm="$realm"|
             );
             $dsl->status(401); # Unauthorized
             return
@@ -329,13 +321,12 @@ sub http_authenticated_user {
     my $dsl = shift;
     my $realm = shift || http_default_realm($dsl);
     
-    http_realm_exists($dsl, $realm); # can be in void, it dies when false
-
-    my $user;
-    ($user, $realm) = http_authenticate_user($dsl, $realm);
-    if ($realm) { # undef unless http_authenticate_user
-        my $provider = auth_provider($dsl, $realm);
-        return $provider->get_user_details($user, $realm);
+    if ( http_authenticate_user($dsl, $realm) ) { # undef unless http_authenticate_user
+        my $provider = auth_provider($dsl, http_realm($dsl));
+        return $provider->get_user_details(
+            http_username($dsl),
+            http_realm($dsl)
+        );
     } else {
         return;
     }
@@ -434,9 +425,7 @@ sub http_authenticate_user {
     my $dsl = shift;
     my $realm = shift || http_default_realm($dsl);
     
-    http_realm_exists($dsl, $realm); # can be in void, it dies when false
-    my $scheme = http_default_scheme($dsl, $realm);
-    http_scheme_known($dsl, $scheme); # only sends out a warning if not
+    http_realm_exists($dsl, $realm);
 
     unless ($dsl->request->header('Authorization')) {
         return wantarray ? (0, undef) : 0;
@@ -452,9 +441,9 @@ sub http_authenticate_user {
     # TODO For now it only does Basic authentication
     #      Once we have Digest and others, it needs to choose itself
     
-    my @realms_to_check = $realm? ($realm) : (keys %{ plugin_setting->{realms} });
+    my @realms_to_check = $realm ? ($realm) : (keys %{ plugin_setting->{realms} });
 
-    for my $realm (@realms_to_check) {
+    for my $realm (@realms_to_check) { # XXX we only should have 1 ????
         $dsl->app->log ( debug  => "Attempting to authenticate $username against realm $realm");
         my $provider = auth_provider($dsl, $realm);
         if ($provider->authenticate_user($username, $password)) {
@@ -480,21 +469,18 @@ register http_authenticate_user => \&http_authenticate_user;
 sub http_default_realm {
     my $dsl = shift;
     
-    my $realm;
-    
+    if (1 == keys %{ plugin_setting->{realms} }) {
+        return (keys %{ plugin_setting->{realms} })[0]; # only the first key in scalar context
+    }
     if (exists plugin_setting->{default_realm} ) {
-        $realm = plugin_setting->{default_realm};
+        return plugin_setting->{default_realm};
     }
-    elsif (1 == keys %{ plugin_setting->{realms} }) {
-        ($realm) = keys %{ plugin_setting->{realms} };
-    }
-    else {
-        die
-            qq|Internal Server Error: |
-        .   qq|"multiple realms without default"|;
-    }
+
+    die
+        qq|Internal Server Error: |
+    .   qq|"multiple realms without default"|;
     
-    return $realm;
+    return;
     
 } # http_default_realm
 
