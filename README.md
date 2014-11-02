@@ -9,11 +9,11 @@ Synopsis
     use Dancer2;
     use Dancer2::Plugin::HTTP::Auth::Extensible;
     
-    get '/users' => require_authentication => sub { ... };
+    get '/users' => http_require_authentication => sub { ... };
     
-    get '/beer' => require_role 'BeerDrinker' => sub { ... };
+    get '/beer' => http_require_role 'BeerDrinker' => sub { ... };
 
-    get '/drink' => require_any_role [qw(BeerDrinker VodaDrinker)] => sub {
+    get '/drink' => http_require_any_role [qw(BeerDrinker VodaDrinker)] => sub {
         ...
     };
 
@@ -51,13 +51,14 @@ like `LWP` do have mechanisms to automaticly resend those.
 Keywords / Methods
 ==================
 
-* require_authentication
-* require_role
-* require_any_role
-* require_all_roles
-* authenticated_user
+* http_require_authentication
+* http_require_role
+* http_require_any_role
+* http_require_all_roles
+* http_authenticated_user
 * user_has_role
-* user_is_authenticated
+* http_username
+* http_realm
 
 Other things to work on are providers and authetication schema's.
 
@@ -98,4 +99,4 @@ Unlike the usual Dancer2::Plugin::Auth::Extensible, there will be no redirect pa
 Release Notes
 =============
 
-The first release will only check for authentication, not for authorization, that also means that there will be no roles to check
+Only Basic authentication is supported now, Digest will come soon.
