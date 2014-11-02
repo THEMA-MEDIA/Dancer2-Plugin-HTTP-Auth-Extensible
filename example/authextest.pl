@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 
-use Dancer;
+use Dancer2;
 use lib '../lib';
-use Dancer::Plugin::Auth::Extensible;
+use Dancer2::Plugin::HTTP::Auth::Extensible;
 
 get '/' => sub {
     my $content = "<h1>Non-secret home page!</h1>";
-    if (my $user = logged_in_user()) {
+    if (my $user = http_authenticated_user()) {
         $content .= "<p>Hi there, $user->{name}!</p>";
     } else {
         $content .= "<p>Why not <a href=\"/login\">log in</a>?</p>";
@@ -28,17 +28,17 @@ LINKS
     return $content;
 };
 
-get '/secret' => require_login sub { "Only logged-in users can see this" };
+get '/secret' => http_require_authentication sub { "Only logged-in users can see this" };
 
-get '/beer' => require_any_role [qw(BeerDrinker HardDrinker)], sub {
+get '/beer' => http_require_any_role [qw(BeerDrinker HardDrinker)], sub {
     "Any drinker can get beer.";
 };
 
-get '/vodka' => require_role HardDrinker => sub {
+get '/vodka' => http_require_role HardDrinker => sub {
     "Only hard drinkers get vodka";
 };
 
-get '/realm' => require_login sub {
-    "You are logged in using realm: " . session->{logged_in_user_realm};
+get '/realm' => http_require_authentication sub {
+    "You are logged in using realm: " . http_realm
 };
 dance();

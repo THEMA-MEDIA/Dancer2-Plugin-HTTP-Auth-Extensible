@@ -5,7 +5,8 @@ logger: console
 log: core
 
 plugins:
-    Auth::Extensible:
+    'HTTP::Auth::Extensible':
+        default_realm: config
         realms:
             example:
                 provider: Example
