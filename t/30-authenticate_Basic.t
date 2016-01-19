@@ -32,7 +32,6 @@ BEGIN {
     set logger      => "file";
 #   set log         => "core";
     set show_errors => 1;
-    set serializer  => "YAML";
     
     use Dancer2::Plugin::HTTP::Auth::Extensible;
     no warnings 'uninitialized';
