@@ -10,7 +10,7 @@ use Class::Load qw(try_load_class);
 use HTTP::Headers::ActionPack::Authorization;
 use HTTP::Headers::ActionPack::WWWAuthenticate;
 
-our $VERSION = '0.100';
+our $VERSION = '0.121';
 
 
 =head1 NAME
