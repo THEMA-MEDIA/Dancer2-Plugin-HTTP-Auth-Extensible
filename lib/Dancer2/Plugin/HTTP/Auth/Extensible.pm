@@ -315,7 +315,7 @@ sub _build_wrapper {
         if (!$user) {
 #           $dsl->execute_hook('http_authentication_required', $coderef);
 #           # TODO: see if any code executed by that hook set up a response
-            $plugin->app->reaponse->header('WWW-Authenticate' =>
+            $plugin->app->response->header('WWW-Authenticate' =>
                 qq|@{[ $plugin->http_default_scheme ]} realm="$realm"|
             );
             $plugin->app->response->status(401); # Unauthorized
