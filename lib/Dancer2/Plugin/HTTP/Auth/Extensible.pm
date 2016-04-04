@@ -4,14 +4,82 @@ use warnings;
 use strict;
 
 use Carp;
-use Dancer2::Plugin;
-use Class::Load qw(try_load_class);
-
+use Dancer2::Core::Types qw(Bool HashRef Str);
 use HTTP::Headers::ActionPack::Authorization;
 use HTTP::Headers::ActionPack::WWWAuthenticate;
+use Module::Runtime 'use_module';
+use Try::Tiny;
+use Dancer2::Plugin;
 
 our $VERSION = '0.121';
 
+#
+# config attributes
+#
+
+has default_realm => (
+    is          => 'ro',
+    isa         => Str,
+    from_config => 1,
+);
+
+has disable_roles => (
+    is          => 'ro',
+    isa         => Bool,
+    from_config => sub { 0 },
+);
+
+has exit_page => (
+    is          => 'ro',
+    isa         => Str,
+    from_config => sub { '/' },
+);
+
+has realms => (
+    is          => 'ro',
+    isa         => HashRef,
+    from_config => sub { {} },
+);
+
+has user_home_page => (
+    is          => 'ro',
+    isa         => Str,
+    from_config => sub { '/' },
+);
+
+#
+# other attributes
+#
+
+has realm_providers => (
+    is       => 'ro',
+    isa      => HashRef,
+    default  => sub { {} },
+    init_arg => undef,
+);
+
+#
+# hooks
+#
+
+# not currently implemented
+# plugin_hooks qw(http_authentication_required http_permission_denied);
+
+#
+# keywords
+#
+
+plugin_keywords
+  'http_authenticate_user',
+  'http_authenticated_user',
+  'http_realm',
+  [ 'http_require_all_roles',      'http_requires_all_roles' ],
+  [ 'http_require_any_role',       'http_requires_any_role' ],
+  [ 'http_require_authentication', 'http_requires_authentication' ],
+  [ 'http_require_role',           'http_requires_role' ],
+  'http_username',
+  'user_has_role',
+  'user_roles';
 
 =head1 NAME
 
@@ -158,8 +226,8 @@ it.
 =cut
 
 sub http_require_authentication {
-    my $dsl = shift;
-    my $realm = (@_ == 2) ? shift : http_default_realm($dsl);
+    my $plugin = shift;
+    my $realm = (@_ == 2) ? shift : $plugin->http_default_realm;
     my $coderef = shift;
 
     return sub {
@@ -167,24 +235,21 @@ sub http_require_authentication {
             warn "Invalid http_require_authentication usage, please see docs";
         }
         
-        my $user = http_authenticated_user($dsl, $realm);
+        my $user = $plugin->http_authenticated_user($realm);
         if (!$user) {
 #           $dsl->execute_hook('http_authentication_required', $coderef);
 #           # TODO: see if any code executed by that hook set up a response
-            $dsl->header('WWW-Authenticate' =>
-                qq|@{[ http_default_scheme($dsl) ]} realm="$realm"|
+            $plugin->app->response->header('WWW-Authenticate' =>
+                qq|@{[ $plugin->http_default_scheme ]} realm="$realm"|
             );
-            $dsl->status(401); # Unauthorized
+            $plugin->app->response->status(401); # Unauthorized
             return
                 qq|Authentication required to access realm: |
             .   qq|'$realm'|;
         }
-        return $coderef->($dsl);
+        return $coderef->($plugin);
     };
 }
-
-register http_require_authentication  => \&http_require_authentication;
-register http_requires_authentication  => \&http_require_authentication;
 
 =item require_role
 
@@ -202,11 +267,8 @@ regex - for example:
 =cut
 
 sub http_require_role {
-    return _build_wrapper(@_, 'single');
+    return shift->_build_wrapper(@_, 'single');
 }
-
-register http_require_role  => \&http_require_role;
-register http_requires_role => \&http_require_role;
 
 =item http_require_any_role
 
@@ -219,11 +281,8 @@ one (or more) of the specified roles in order to access it.
 =cut
 
 sub http_require_any_role {
-    return _build_wrapper(@_, 'any');
+    return shift->_build_wrapper(@_, 'any');
 }
-
-register http_require_any_role  => \&http_require_any_role;
-register http_requires_any_role => \&http_require_any_role;
 
 =item http_require_all_roles
 
@@ -236,17 +295,14 @@ of the roles listed in order to access it.
 =cut
 
 sub http_require_all_roles {
-    return _build_wrapper(@_, 'all');
+    return shift->_build_wrapper(@_, 'all');
 }
-
-register http_require_all_roles  => \&http_require_all_roles;
-register http_requires_all_roles => \&http_require_all_roles;
 
 
 sub _build_wrapper {
-    my $dsl = shift;
+    my $plugin = shift;
     my $require_role = shift;
-    my $realm = (@_ == 3) ? shift : http_default_realm($dsl);
+    my $realm = (@_ == 3) ? shift : $plugin->http_default_realm;
     my $coderef = shift;
     my $mode = shift;
 
@@ -255,14 +311,14 @@ sub _build_wrapper {
             warn "Invalid http_require_authentication usage, please see docs";
         }
         
-        my $user = http_authenticated_user($dsl, $realm);
+        my $user = $plugin->http_authenticated_user($realm);
         if (!$user) {
 #           $dsl->execute_hook('http_authentication_required', $coderef);
 #           # TODO: see if any code executed by that hook set up a response
-            $dsl->header('WWW-Authenticate' =>
-                qq|@{[ http_default_scheme($dsl) ]} realm="$realm"|
+            $plugin->app->response->header('WWW-Authenticate' =>
+                qq|@{[ $plugin->http_default_scheme ]} realm="$realm"|
             );
-            $dsl->status(401); # Unauthorized
+            $plugin->app->response->status(401); # Unauthorized
             return
                 qq|Authentication required to access realm: |
             .   qq|'$realm'|;
@@ -273,18 +329,18 @@ sub _build_wrapper {
             : $require_role;
         my $role_match;
         if ($mode eq 'single') {
-            for (user_roles($dsl)) {
+            for ($plugin->user_roles) {
                 $role_match++ and last if _smart_match($_, $require_role);
             }
         } elsif ($mode eq 'any') {
             my %role_ok = map { $_ => 1 } @role_list;
-            for (user_roles($dsl)) {
+            for ($plugin->user_roles) {
                 $role_match++ and last if $role_ok{$_};
             }
         } elsif ($mode eq 'all') {
             $role_match++;
             for my $role (@role_list) {
-                if (!user_has_role($dsl, $role)) {
+                if (!$plugin->user_has_role($role)) {
                     $role_match = 0;
                     last;
                 }
@@ -294,15 +350,15 @@ sub _build_wrapper {
 
 #           $dsl->execute_hook('http_permission_denied', $coderef);
 #           # TODO: see if any code executed by that hook set up a response
-            $dsl->status(403); # Forbidden
+            $plugin->app->response->status(403); # Forbidden
             return
                 qq|Permission denied for resource: |
-            .   qq|'@{[ $dsl->request->path ]}'|;
+            .   qq|'@{[ $plugin->app->request->path ]}'|;
         }
         
         # We're happy with their roles, so go head and execute the route
         # handler coderef.
-        return $coderef->($dsl);
+        return $coderef->($plugin);
 
     }; # return sub
 } # _build_wrapper
@@ -318,20 +374,19 @@ The details you get back will depend upon the authentication provider in use.
 =cut
 
 sub http_authenticated_user {
-    my $dsl = shift;
-    my $realm = shift || http_default_realm($dsl);
+    my $plugin = shift;
+    my $realm = shift || $plugin->http_default_realm;
     
-    if ( http_authenticate_user($dsl, $realm) ) { # undef unless http_authenticate_user
-        my $provider = auth_provider($dsl, http_realm($dsl));
+    if ( $plugin->http_authenticate_user($realm) ) { # undef unless http_authenticate_user
+        my $provider = $plugin->auth_provider($plugin->http_realm);
         return $provider->get_user_details(
-            http_username($dsl),
-            http_realm($dsl)
+            $plugin->http_username,
+            $plugin->http_realm
         );
     } else {
         return;
     }
 }
-register http_authenticated_user => \&http_authenticated_user;
 
 =item user_has_role
 
@@ -349,20 +404,19 @@ You can also provide the username to check;
 =cut
 
 sub user_has_role {
-    my $dsl = shift;
-    my $session = $dsl->app->session;
+    my $plugin = shift;
 
     my ($username, $want_role);
     if (@_ == 2) {
         ($username, $want_role) = @_;
     } else {
-        $username  = http_username($dsl);
+        $username  = $plugin->http_username;
         $want_role = shift;
     }
 
     return unless defined $username;
 
-    my $roles = user_roles($dsl, $username);
+    my $roles = $plugin->user_roles($username);
 
     for my $has_role (@$roles) {
         return 1 if $has_role eq $want_role;
@@ -370,7 +424,6 @@ sub user_has_role {
 
     return 0;
 }
-register user_has_role => \&user_has_role;
 
 =item user_roles
 
@@ -384,18 +437,16 @@ Returns a list or arrayref depending on context.
 =cut
 
 sub user_roles {
-    my ($dsl, $username, $realm) = @_;
-    my $session = $dsl->app->session;
+    my ($plugin, $username, $realm) = @_;
 
-    $username = http_username($dsl) unless defined $username;
+    $username = $plugin->http_username unless defined $username;
 
     my $search_realm = ($realm ? $realm : '');
 
-    my $roles = auth_provider($dsl, $search_realm)->get_user_roles($username);
+    my $roles = $plugin->auth_provider($search_realm)->get_user_roles($username);
     return unless defined $roles;
     return wantarray ? @$roles : $roles;
 }
-register user_roles => \&user_roles;
 
 
 =item authenticate_user
@@ -422,35 +473,35 @@ C<($success, $realm)>.
 =cut
 
 sub http_authenticate_user {
-    my $dsl = shift;
-    my $realm = shift || http_default_realm($dsl);
+    my $plugin = shift;
+    my $realm = shift || $plugin->http_default_realm;
     
-    http_realm_exists($dsl, $realm);
+    $plugin->http_realm_exists($realm);
 
-    unless ($dsl->request->header('Authorization')) {
+    unless ($plugin->app->request->header('Authorization')) {
         return wantarray ? (0, undef) : 0;
     }
 #   my ($username, $password) = $dsl->request->headers->authorization_basic;
     
     my $auth
     = HTTP::Headers::ActionPack::Authorization::Basic
-      ->new_from_string($dsl->request->header('Authorization'));
+      ->new_from_string($plugin->app->request->header('Authorization'));
     my $username = $auth->username;
     my $password = $auth->password;
     
     # TODO For now it only does Basic authentication
     #      Once we have Digest and others, it needs to choose itself
     
-    my @realms_to_check = $realm ? ($realm) : (keys %{ plugin_setting->{realms} });
+    my @realms_to_check = $realm ? ($realm) : (keys %{ $plugin->realms });
 
     for my $realm (@realms_to_check) { # XXX we only should have 1 ????
-        $dsl->app->log ( debug  => "Attempting to authenticate $username against realm $realm");
-        my $provider = auth_provider($dsl, $realm);
+        $plugin->app->log ( debug  => "Attempting to authenticate $username against realm $realm");
+        my $provider = $plugin->auth_provider($realm);
         if ($provider->authenticate_user($username, $password)) {
-            $dsl->app->log ( debug => "$realm accepted user $username");
-            $dsl->vars->{'http_username'} = $username;
+            $plugin->app->log ( debug => "$realm accepted user $username");
+            $plugin->app->request->vars->{'http_username'} = $username;
             # don't do `http_username($dsl, $username)`, SECURITY BREACH
-            $dsl->vars->{'http_realm'   } = $realm;
+            $plugin->app->request->vars->{'http_realm'   } = $realm;
             # don't do `http_username($dsl, $username)`, SECURITY BREACH
             return wantarray ? ($username, $realm) : $username;
         }
@@ -464,16 +515,15 @@ sub http_authenticate_user {
     return wantarray ? (0, undef) : 0;
 }
 
-register http_authenticate_user => \&http_authenticate_user;
 
 sub http_default_realm {
-    my $dsl = shift;
+    my $plugin = shift;
     
-    if (1 == keys %{ plugin_setting->{realms} }) {
-        return (keys %{ plugin_setting->{realms} })[0]; # only the first key in scalar context
+    if (1 == keys %{ $plugin->realms }) {
+        return (keys %{ $plugin->realms })[0]; # only the first key in scalar context
     }
-    if (exists plugin_setting->{default_realm} ) {
-        return plugin_setting->{default_realm};
+    if (defined $plugin->default_realm ) {
+        return $plugin->default_realm;
     }
 
     die
@@ -487,10 +537,10 @@ sub http_default_realm {
 #register http_default_realm => \&http_default_realm;
 
 sub http_realm_exists {
-    my $dsl = shift;
-    my $realm = shift || http_default_realm($dsl);
+    my $plugin = shift;
+    my $realm = shift || $plugin->http_default_realm;
 
-    unless (grep {$realm eq $_} keys %{ plugin_setting->{realms} }) {
+    unless (grep {$realm eq $_} keys %{ $plugin->realms }) {
         die
             qq|Internal Server Error: |
         .   qq|"required realm does not exist: '$realm'"|;
@@ -504,15 +554,15 @@ sub http_realm_exists {
 
 
 sub http_default_scheme {
-    my $dsl = shift;
-    my $realm = shift || http_default_realm($dsl);
+    my $plugin = shift;
+    my $realm = shift || $plugin->http_default_realm;
 
-    http_realm_exists($dsl, $realm);
+    $plugin->http_realm_exists($realm);
     
     my $scheme;
     
-    if (exists plugin_setting->{realms}->{$realm}->{scheme} ) {
-        $scheme = plugin_setting->{realms}->{$realm}->{scheme};
+    if (exists $plugin->realms->{$realm}->{scheme} ) {
+        $scheme = $plugin->realms->{$realm}->{scheme};
     }
     else {
         $scheme = "Basic";
@@ -526,7 +576,7 @@ sub http_default_scheme {
 
 
 sub http_scheme_known {
-    my $dsl = shift;
+    my $plugin = shift;
     my $scheme = shift;
 
     unless (grep $scheme eq $_, ('Basic', 'Digest')) {
@@ -556,31 +606,30 @@ C< http_username > returns undef.
 =cut
 
 sub http_username {
-    my $dsl = shift;
+    my $plugin = shift;
     
-    unless ( exists $dsl->vars->{http_username} ) {
-        $dsl->app->log( warning =>
+    unless ( exists $plugin->app->request->vars->{http_username} ) {
+        $plugin->app->log( warning =>
             qq|'http_username' should only be used in an authenticated route|
         );
     }
     
     if (@_ == 1) { # CAUTION: use with care
-        $dsl->vars->{http_username} = shift;
+        $plugin->app->request->vars->{http_username} = shift;
         my $message
         =   qq|POTENTIONAL SECURITY BREACH: |
         .   qq|"impersonating different user: '|
-        .   $dsl->vars->{http_username}
+        .   $plugin->app->request->vars->{http_username}
         .   qq|'"|;
         warn $message;
-        $dsl->app->log ( warning => $message );
+        $plugin->app->log ( warning => $message );
     }
     
-    return unless exists $dsl->vars->{http_username};
-    return $dsl->vars->{http_username};
+    return unless exists $plugin->app->request->vars->{http_username};
+    return $plugin->app->request->vars->{http_username};
     
 } # http_username
 
-register http_username => \&http_username;
 
 =item http_realm - gets or sets the real of the current request
 
@@ -597,31 +646,30 @@ C< http_realm > returns undef.
 =cut
 
 sub http_realm {
-    my $dsl = shift;
+    my $plugin = shift;
     
-    unless ( exists $dsl->vars->{http_realm} ) {
-        $dsl->app->log( warning =>
+    unless ( exists $plugin->app->request->vars->{http_realm} ) {
+        $plugin->app->log( warning =>
             qq|'http_realm' should only be used in an authenticated route|
         );
     }
     
     if (@_ == 1) { # CAUTION: use with care
-        $dsl->vars->{http_realm} = shift;
+        $plugin->app->request->vars->{http_realm} = shift;
         my $message
         =   qq|POTENTIONAL SECURITY BREACH: |
         .   qq|"switching to different realm: '|
-        .   $dsl->vars->{http_realm}
+        .   $plugin->app->request->vars->{http_realm}
         .   qq|'"|;
         warn $message;
-        $dsl->app->log ( warning => $message );
+        $plugin->app->log ( warning => $message );
     }
     
-    return unless exists $dsl->vars->{http_realm};
-    return $dsl->vars->{http_realm};
+    return unless exists $plugin->app->request->vars->{http_realm};
+    return $plugin->app->request->vars->{http_realm};
     
 } # http_realm
 
-register http_realm => \&http_realm;
 
 =back
 
@@ -656,42 +704,37 @@ the currently logged in user.
 
 =cut
 
-{
 # Given a realm, returns a configured and ready to use instance of the provider
 # specified by that realm's config.
-my %realm_provider;
 sub auth_provider {
-    my $dsl = shift;
-    my $realm = shift || http_default_realm($dsl);
+    my $plugin = shift;
+    my $realm = shift || $plugin->http_default_realm;
    
-    http_realm_exists($dsl, $realm); # can be in void, it dies when false
+    $plugin->http_realm_exists($realm); # can be in void, it dies when false
 
     # First, if we already have a provider for this realm, go ahead and use it:
-    return $realm_provider{$realm} if exists $realm_provider{$realm};
+    return $plugin->realm_providers->{$realm}
+      if exists $plugin->realm_providers->{$realm};
 
     # OK, we need to find out what provider this realm uses, and get an instance
     # of that provider, configured with the settings from the realm.
-    my $realm_settings = plugin_setting->{realms}->{$realm}
+    my $realm_settings = $plugin->realms->{$realm}
         or die "Invalid realm $realm";
     my $provider_class = $realm_settings->{provider}
         or die "No provider configured - consult documentation for "
             . "Dancer2::Plugin::Auth::Extensible";
 
     if ($provider_class !~ /::/) {
-        $provider_class = "Dancer2::Plugin::Auth::Extensible" . "::Provider::$provider_class";
-    }
-    my ($ok, $error) = try_load_class($provider_class);
-
-    if (! $ok) {
-        die "Cannot load provider $provider_class: $error";
+        $provider_class = "Dancer2::Plugin::Auth::Extensible::Provider::$provider_class";
     }
 
-    return $realm_provider{$realm} = $provider_class->new($realm_settings);
-}
+    return $plugin->realm_providers->{$realm} =
+      use_module($provider_class)->new(
+        plugin => $plugin,
+        %$realm_settings,
+      );
 }
 
-register_hook qw(http_authentication_required http_permission_denied);
-register_plugin for_versions => [qw(1 2)];
 
 
 # Given a class method name and a set of parameters, try calling that class
@@ -700,10 +743,12 @@ register_plugin for_versions => [qw(1 2)];
 # succeeded and the response.
 # Note: all provider class methods return a single value; if any need to return
 # a list in future, this will need changing)
+# FIXME: why is this here? It isn't called from anywhere.
 sub _try_realms {
+    my $plugin = shift;
     my ($method, @args);
-    for my $realm (keys %{ plugin_setting->{realms} }) {
-        my $provider = auth_provider($realm);
+    for my $realm (keys %{ $plugin->realms }) {
+        my $provider = $plugin->auth_provider($realm);
         if (!$provider->can($method)) {
             die "Provider $provider does not provide a $method method!";
         }
@@ -713,13 +758,6 @@ sub _try_realms {
     }
     return;
 }
-
-on_plugin_import {
-    my $dsl = shift;
-    my $app = $dsl->app;
-
-};
-
 
 # Replacement for much maligned and misunderstood smartmatch operator
 sub _smart_match {
@@ -735,9 +773,6 @@ sub _smart_match {
     }
 }
 
-
-
-
 =head1 AUTHOR
 
 Theo van Hoesel, C<< <Th.J.v.Hoesel at THEMA-MEDIA dot nl> >>
@@ -749,6 +784,8 @@ David Precious, C<< <davidp at preshweb.co.uk> >>
 Dancer2 port of Dancer::Plugin::Auth::Extensible by:
 
 Stefan Hornburg (Racke), C<< <racke at linuxia.de> >>
+
+Rehack for plugin2 by: Peter Mottram (SysPete) C<< peter@sysnix.com >>
 
 =head1 BUGS / FEATURE REQUESTS
 
@@ -779,7 +816,7 @@ Config options for default login/logout handlers by Henk van Oers (hvoers)
 =head1 LICENSE AND COPYRIGHT
 
 
-Copyright 2014 THEMA-MEDIA, Th.J. van Hoesel
+Copyright 2014-2016 THEMA-MEDIA, Th.J. van Hoesel
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
