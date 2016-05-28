@@ -730,8 +730,7 @@ sub auth_provider {
 
     return $plugin->realm_providers->{$realm} =
       use_module($provider_class)->new(
-        plugin => $plugin,
-        %$realm_settings,
+        $realm_settings,
       );
 }
 
